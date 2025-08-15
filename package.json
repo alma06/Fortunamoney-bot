@@ -1,0 +1,34 @@
+{
+  "name": "mi-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.55.0",
+    "abort-controller": "^3.0.0",
+    "buffer-alloc": "^1.2.0",
+    "buffer-alloc-unsafe": "^1.1.0",
+    "buffer-fill": "^1.0.0",
+    "debug": "^4.4.1",
+    "dotenv": "^17.2.1",
+    "event-target-shim": "^5.0.1",
+    "express": "^5.1.0",
+    "mri": "^1.2.0",
+    "ms": "^2.1.3",
+    "node-cron": "^4.2.1",
+    "node-fetch": "^2.7.0",
+    "p-timeout": "^4.1.0",
+    "safe-compare": "^1.1.4",
+    "sandwich-stream": "^2.0.2",
+    "telegraf": "^4.16.3",
+    "tr46": "^0.0.3",
+    "webidl-conversions": "^3.0.1",
+    "whatwg-url": "^5.0.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
