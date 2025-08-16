@@ -582,7 +582,7 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
       .update({ estado: 'rechazado' })
       .eq('id', rid);
 
-   // === Rechazar retiro: devuelve monto + fee ===
+// === Acción para rechazar retiro: devuelve monto + fee ===
 bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
   try {
     const rid = Number(ctx.match[1]);
@@ -603,19 +603,18 @@ bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
       return ctx.answerCbQuery('Este retiro ya fue procesado');
     }
 
-    // Lee FEE_RETIRO (env o constante). Fuerza número; fallback = 1
+    // Leer FEE_RETIRO (env o constante). Forzar número; fallback = 1
     const feeEnv = (typeof FEE_RETIRO !== 'undefined') ? FEE_RETIRO : process.env.FEE_RETIRO;
     const feeNum = Number(feeEnv);
     const fee = Number.isFinite(feeNum) ? feeNum : 1;
 
-    // Devolver al saldo del usuario: monto + fee
+    // Calcular devolución: monto + fee
+    const devolver = Number(r.monto || 0) + fee;
+
+    // Devolver al saldo del usuario
     const car = await carteraDe(r.telegram_id);
     const saldoActual = Number(car?.saldo || 0);
-    const devolver = Number(r.monto || 0) + fee;
     const nuevoSaldo = saldoActual + devolver;
-
-    console.log('Rechazo retiro =>', { rid, monto: r.monto, fee, saldoActual, devolver, nuevoSaldo });
-
     await actualizarCartera(r.telegram_id, { saldo: nuevoSaldo });
 
     // Marcar retiro como rechazado
@@ -624,7 +623,7 @@ bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
       .update({ estado: 'rechazado' })
       .eq('id', rid);
 
-    // Quitar botones del mensaje de admin (si aplica)
+    // Quitar botones del admin (si aplica)
     try { await ctx.editMessageReplyMarkup(); } catch (_) {}
 
     // Notificar al usuario
@@ -635,11 +634,11 @@ bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
     );
 
     return ctx.answerCbQuery('Rechazado y devuelto ✅');
-} catch (e) {
+  } catch (e) {
     console.log('Error rechazando retiro:', e);
     return ctx.answerCbQuery('Error al rechazar');
   }
-}); // <-- solo este
+});
 
 // =================== HTTP endpoints ===================
 
@@ -684,6 +683,7 @@ app.listen(PORT, async () => {
     console.log('❌ Error configurando webhook/polling:', e.message || e);
   }
 });
+
 
 
 
