@@ -614,15 +614,13 @@ app.get('/run-pago', async (req, res) => {
 });
 
 // ===== Webhook de Telegram =====
-const webhookPath = /webhook/${BOT_TOKEN};
+const webhookPath = /webhook/${BOT_TOKEN};   // usa backticks, no comillas simples
 
-// GET de prueba (si abres la URL en el navegador debe responder 200 OK)
+// GET de prueba: si abres la URL en el navegador debe responder 200 OK
 app.get(webhookPath, (_req, res) => res.status(200).send('OK'));
 
 // Handler REAL del webhook (Telegram envía POST)
-app.post(webhookPath, (req, res) => {
-  return bot.webhookCallback(webhookPath)(req, res);
-});
+app.use(webhookPath, bot.webhookCallback(webhookPath));
 
 // ===== Arranque (Webhook si hay HOST_URL; si no, polling local) =====
 app.listen(PORT, async () => {
@@ -630,7 +628,7 @@ app.listen(PORT, async () => {
 
   try {
     if (HOST_URL) {
-      const url = HOST_URL + webhookPath;
+      const url = ${HOST_URL}${webhookPath};
       await bot.telegram.setWebhook(url);
       console.log('Webhook configurado en:', url);
     } else {
