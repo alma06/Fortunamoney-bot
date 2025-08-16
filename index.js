@@ -199,17 +199,11 @@ res.send('Pago diario ejecutado. Usuarios pagados: ' + n);
 });
 
 // ===== Webhook de Telegram =====
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'fortunamoney2025';
-const webhookPath = /webhook/${WEBHOOK_SECRET};
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'devsecret123';
+const webhookPath   = /webhook/${WEBHOOK_SECRET};
 
-// GET de prueba (si abres la URL en el navegador debe responder 200 OK)
 app.get(webhookPath, (_req, res) => res.status(200).send('OK'));
-
-// Handler REAL del webhook (Telegram envía POST)
-app.post(webhookPath, (req, res) => {
-  return bot.webhookCallback(webhookPath)(req, res);
-});
-
+app.post(webhookPath, (req, res) => bot.webhookCallback(webhookPath)(req, res));
 // ===== Arranque (Webhook si hay HOST_URL; si no, polling local) =====
 app.listen(PORT, async () => {
   console.log('HTTP server on port', PORT);
@@ -230,6 +224,7 @@ app.listen(PORT, async () => {
 
 process.once('SIGINT', () => { try { bot.stop('SIGINT'); } catch (_) {} });
 process.once('SIGTERM', () => { try { bot.stop('SIGTERM'); } catch (_) {} });
+
 
 
 
