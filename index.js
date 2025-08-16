@@ -613,8 +613,7 @@ app.get('/run-pago', async (req, res) => {
 });
 
 // === Webhook de Telegram (con LOG) ===
-const webhookPath = /webhook/${BOT_TOKEN};
-
+const webhookPath = `/webhook/${BOT_TOKEN}`;
 // GET de prueba
 app.get(webhookPath, (_req, res) => res.status(200).send('OK'));
 
@@ -643,3 +642,4 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message || e);
   }
 });
+
