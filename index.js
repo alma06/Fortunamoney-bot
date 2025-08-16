@@ -556,42 +556,45 @@ bot.command('retiros', async (ctx) => {
   await ctx.reply(msg);
 });
 
-// ======== ADMIN – Acciones retiro por botones ========
-bot.action(/ret:approve:(\d+)/, async (ctx) => {
-  try {
-    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
-    const rid = Number(ctx.match[1]);
-
-    const { data: r } = await supabase.from('retiros').select('*').eq('id', rid).single();
-    if (!r) return ctx.answerCbQuery('No encontrado');
-    if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
-
-    await supabase.from('retiros').update({ estado: 'aprobado', aprobado_en: new Date().toISOString() }).eq('id', rid);
-
-    try { await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro de ' + Number(r.monto).toFixed(2) + ' USDT fue APROBADO.'); } catch {}
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply('✅ Retiro #' + rid + ' aprobado.');
-  } catch (e) { console.log(e); }
-});
-
+// ======== ADMIN – Acciones retiro por botones (RECHAZAR: devuelve monto + fee) ========
 bot.action(/ret:reject:(\d+)/, async (ctx) => {
   try {
     if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
+
     const rid = Number(ctx.match[1]);
 
-    const { data: r } = await supabase.from('retiros').select('*').eq('id', rid).single();
-    if (!r) return ctx.answerCbQuery('No encontrado');
+    const { data: r, error } = await supabase
+      .from('retiros')
+      .select('*')
+      .eq('id', rid)
+      .single();
+
+    if (error || !r) return ctx.answerCbQuery('No encontrado');
     if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
 
-    const car = await carteraDe(r.telegram_id);
-    await actualizarCartera(r.telegram_id, { saldo: Number(car.saldo || 0) + Number(r.monto || 0) + 0 }); // el fee ya fue descontado al crear
+    const monto  = Number(r.monto || 0);
+    const fee    = Number(RETIRO_FEE_USDT || 0);
+    const refund = monto + fee;   // ✅ ahora devuelve el total con fee incluido
 
-    await supabase.from('retiros').update({ estado: 'rechazado' }).eq('id', rid);
+    // Marcar retiro rechazado
+    await supabase
+      .from('retiros')
+      .update({ estado: 'rechazado' })
+      .eq('id', rid);
 
-    try { await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro de ' + Number(r.monto).toFixed(2) + ' USDT fue RECHAZADO. Monto devuelto.'); } catch {}
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply('❌ Retiro #' + rid + ' rechazado y monto devuelto.');
-  } catch (e) { console.log(e); }
+    // Devolver monto + fee al usuario
+    await supabase.rpc('incrementar_saldo', {
+      uid: r.uid,
+      cantidad: refund
+    });
+
+    await ctx.editMessageText(`❌ Retiro de ${refund.toFixed(2)} USDT fue RECHAZADO. Monto + fee devueltos.`);
+    await ctx.answerCbQuery('Rechazado y devuelto ✅');
+
+  } catch (e) {
+    console.error(e);
+    ctx.answerCbQuery('Error al rechazar');
+  }
 });
 
 // ======== Utilidad: ver el chat_id del chat actual ========
@@ -643,6 +646,7 @@ app.listen(PORT, async () => {
     console.log('❌ Error configurando webhook/polling:', e.message || e);
   }
 });
+
 
 
 
