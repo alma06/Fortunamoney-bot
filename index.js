@@ -635,8 +635,3 @@ app.listen(PORT, async () => {
   }
 });
 
-// Cierre limpio
-process.once('SIGINT', () => { try { bot.stop('SIGINT'); } catch (_) {} });
-process.once('SIGTERM', () => { try { bot.stop('SIGTERM'); } catch (_) {} });
-
-
