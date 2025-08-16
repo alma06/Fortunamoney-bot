@@ -582,7 +582,7 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
       .update({ estado: 'rechazado' })
       .eq('id', rid);
 
-    // === Rechazar retiro: devuelve monto + fee ===
+   // === Rechazar retiro: devuelve monto + fee ===
 bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
   try {
     const rid = Number(ctx.match[1]);
@@ -603,15 +603,20 @@ bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
       return ctx.answerCbQuery('Este retiro ya fue procesado');
     }
 
-    // Lee FEE_RETIRO desde env o constante y fuerza número, con fallback a 1
-const feeEnv = (typeof FEE_RETIRO !== 'undefined') ? FEE_RETIRO : process.env.FEE_RETIRO;
-const feeNum = Number(feeEnv);
-const fee = Number.isFinite(feeNum) ? feeNum : 1;
+    // Lee FEE_RETIRO desde env o constante; fuerza número; fallback = 1
+    const feeEnv = (typeof FEE_RETIRO !== 'undefined') ? FEE_RETIRO : process.env.FEE_RETIRO;
+    const feeNum = Number(feeEnv);
+    const fee = Number.isFinite(feeNum) ? feeNum : 1;
 
-    // Devolver al saldo del usuario
+    // Devolver al saldo del usuario (monto + fee)
     const car = await carteraDe(r.telegram_id);
     const saldoActual = Number(car?.saldo || 0);
+    const devolver = Number(r.monto || 0) + fee;
     const nuevoSaldo = saldoActual + devolver;
+
+    // Debug en logs de Render
+    console.log('Rechazo retiro =>', { rid, monto: r.monto, fee, saldoActual, devolver, nuevoSaldo });
+
     await actualizarCartera(r.telegram_id, { saldo: nuevoSaldo });
 
     // Marcar retiro como rechazado
@@ -635,9 +640,9 @@ const fee = Number.isFinite(feeNum) ? feeNum : 1;
     console.log('Error rechazando retiro:', e);
     return ctx.answerCbQuery('Error al rechazar');
   }
-}); // 👈 cierre correcto del handler
+});
 
-// ======== Utilidad: ver el chat_id del chat actual ========
+// ===== Utilidad: ver el chat_id del chat actual =====
 bot.command('aqui', async (ctx) => {
   const cid = ctx.chat && ctx.chat.id;
   await ctx.reply('chat_id: ' + cid);
@@ -686,6 +691,7 @@ app.listen(PORT, async () => {
     console.log('❌ Error configurando webhook/polling:', e.message || e);
   }
 });
+
 
 
 
