@@ -210,3 +210,6 @@ app.listen(PORT, async () => {
         console.log('Error configurando webhook/polling:', e.message || e);
     }
 });
+
+process.once('SIGINT', () => { try { bot.stop('SIGINT'); } catch (_) {} });
+process.once('SIGTERM', () => { try { bot.stop('SIGTERM'); } catch (_) {} });
