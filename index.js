@@ -140,6 +140,36 @@ function tasaSegunBruto(brutoTotal) { return brutoTotal >= 500 ? 0.02 : 0.015; }
 function brutoDesdeNeto(neto) { return neto > 0 ? (neto / 0.9) : 0; }
 function tope500Bruto(bruto) { return bruto * 5.0; }
 
+// ================== Pago diario ==================
+async function pagarDiario() {
+  try {
+    // Obtengo usuarios desde la base de datos
+    let usuarios = await db.getData('/usuarios');
+    let count = 0;
+
+    for (let uid in usuarios) {
+      let u = usuarios[uid];
+
+      // Solo paga si aún no llegó al tope (500%)
+      if (u.bruto < tope500Proc(u.invertido)) {
+        const tasa = tasaSegunMonto(u.invertido); // 0.02 o 0.015
+        const ganancia = u.invertido * tasa;
+
+        u.disponible = (u.disponible || 0) + ganancia;
+        u.bruto = (u.bruto || 0) + ganancia;
+
+        count++;
+      }
+    }
+
+    // Guardo los cambios en la base de datos
+    await db.push('/usuarios', usuarios);
+    return count; // cantidad de usuarios pagados
+  } catch (e) {
+    console.log("Error en pagarDiario:", e);
+    return 0;
+  }
+}
 // ======== Handlers Bot ========
 bot.start(async (ctx) => {
   try {
@@ -643,3 +673,4 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
