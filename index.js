@@ -1,6 +1,6 @@
 // ================== FortunaMoney Bot (Webhook + Cron HTTP) ==================
-// Depósitos con comprobante (hash + foto), aprobación manual por admin
-// Pago diario automático vía endpoint /run-pago (llamado por cron externo a las 12:00 Madrid)
+// DepÃ³sitos con comprobante (hash + foto), aprobaciÃ³n manual por admin
+// Pago diario automÃ¡tico vÃ­a endpoint /run-pago (llamado por cron externo a las 12:00 Madrid)
 // Tasa: 1.5% si BRUTO < 500 USDT, 2% si >= 500 USDT
 // 10% al patrocinador y 90% al principal neto
 // Tope total: 500% del BRUTO (bruto = neto / 0.9)
@@ -22,7 +22,7 @@ const ADMIN_ID       = Number(process.env.ADMIN_ID || 0);
 const WALLET_USDT    = process.env.WALLET_USDT || 'WALLET_NO_CONFIGURADA';
 const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID ? Number(process.env.ADMIN_GROUP_ID) : null;
 
-const HOST_URL       = process.env.HOST_URL || '';      // URL pública (Render)
+const HOST_URL       = process.env.HOST_URL || '';      // URL pÃºblica (Render)
 const CRON_SECRET    = process.env.CRON_SECRET || 'cambia_esto';
 const PORT           = process.env.PORT || 3000;
 
@@ -52,20 +52,20 @@ function menu() {
   ]).resize();
 }
 
-// Inline keyboards (aprobación/rechazo)
+// Inline keyboards (aprobaciÃ³n/rechazo)
 function kbDep(idDep) {
   return Markup.inlineKeyboard([
     [
-      Markup.button.callback('✅ Aprobar', 'dep:approve:' + idDep),
-      Markup.button.callback('❌ Rechazar', 'dep:reject:' + idDep)
+      Markup.button.callback('âœ… Aprobar', 'dep:approve:' + idDep),
+      Markup.button.callback('âŒ Rechazar', 'dep:reject:' + idDep)
     ]
   ]);
 }
 function kbRet(idRet) {
   return Markup.inlineKeyboard([
     [
-      Markup.button.callback('✅ Aprobar retiro', 'ret:approve:' + idRet),
-      Markup.button.callback('❌ Rechazar retiro', 'ret:reject:' + idRet)
+      Markup.button.callback('âœ… Aprobar retiro', 'ret:approve:' + idRet),
+      Markup.button.callback('âŒ Rechazar retiro', 'ret:reject:' + idRet)
     ]
   ]);
 }
@@ -158,10 +158,10 @@ bot.start(async (ctx) => {
       }
     }
 
-    await ctx.reply('Bienvenido. Usa el menú:', menu());
+    await ctx.reply('Bienvenido. Usa el menÃº:', menu());
   } catch (e) {
     console.log(e);
-    try { await ctx.reply('Ocurrió un error al iniciar.'); } catch {}
+    try { await ctx.reply('OcurriÃ³ un error al iniciar.'); } catch {}
   }
 });
 
@@ -171,7 +171,7 @@ bot.hears('Invertir', async (ctx) => {
     await asegurarUsuario(chatId);
     estado[chatId] = 'INV';
     await ctx.reply(
-      'Escribe el monto a invertir (mínimo ' + MIN_INVERSION + ' USDT). Solo número, ejemplo: 100.00'
+      'Escribe el monto a invertir (mÃ­nimo ' + MIN_INVERSION + ' USDT). Solo nÃºmero, ejemplo: 100.00'
     );
   } catch (e) { console.log(e); }
 });
@@ -183,8 +183,8 @@ bot.hears('Retirar', async (ctx) => {
     const car = await carteraDe(chatId);
     await ctx.reply(
       'Tu saldo disponible es: ' + Number(car.saldo || 0).toFixed(2) + ' USDT\n' +
-      'Fee de retiro: ' + RETIRO_FEE_USDT + ' USDT (se descuenta además del monto solicitado).\n' +
-      'Escribe el monto a retirar (solo número, ejemplo: 25.00)'
+      'Fee de retiro: ' + RETIRO_FEE_USDT + ' USDT (se descuenta ademÃ¡s del monto solicitado).\n' +
+      'Escribe el monto a retirar (solo nÃºmero, ejemplo: 25.00)'
     );
     estado[chatId] = 'RET';
   } catch (e) { console.log(e); }
@@ -222,12 +222,12 @@ bot.hears('Referidos', async (ctx) => {
     const enlace = 'https://t.me/' + (ctx.botInfo.username || 'Fortunamoneybot') + '?start=ref_' + chatId;
     await ctx.reply(
       'Tu enlace de referido:\n' + enlace +
-      '\nGanas 10% de cada inversión de tu referido (retirable). Ese 10% cuenta hacia el 500%.'
+      '\nGanas 10% de cada inversiÃ³n de tu referido (retirable). Ese 10% cuenta hacia el 500%.'
     );
   } catch (e) { console.log(e); }
 });
 
-// Pago manual para pruebas (también expuesto como /run-pago)
+// Pago manual para pruebas (tambiÃ©n expuesto como /run-pago)
 async function pagarDiario() {
   try {
     const { data: carteras, error } = await supabase.from('carteras')
@@ -286,11 +286,11 @@ bot.on('text', async (ctx) => {
     if (estado[chatId] === 'INV') {
       const monto = Number(txt.replace(',', '.'));
       if (isNaN(monto) || monto <= 0) {
-        await ctx.reply('Monto inválido. Intenta de nuevo.');
+        await ctx.reply('Monto invÃ¡lido. Intenta de nuevo.');
         return;
       }
       if (monto < MIN_INVERSION) {
-        await ctx.reply('El mínimo de inversión es ' + MIN_INVERSION + ' USDT.');
+        await ctx.reply('El mÃ­nimo de inversiÃ³n es ' + MIN_INVERSION + ' USDT.');
         return;
       }
 
@@ -304,33 +304,33 @@ bot.on('text', async (ctx) => {
 
       if (ins.error) {
         console.log(ins.error);
-        await ctx.reply('No se pudo crear el depósito. Intenta nuevamente.');
+        await ctx.reply('No se pudo crear el depÃ³sito. Intenta nuevamente.');
         estado[chatId] = undefined;
         return;
       }
 
       const depId = ins.data.id;
 
-      const aviso = '📬 Nuevo DEPÓSITO pendiente\n' +
+      const aviso = 'ðŸ“¬ Nuevo DEPÃ“SITO pendiente\n' +
                     'ID: ' + depId + '\n' +
                     'User: ' + chatId + '\n' +
                     'Monto: ' + monto.toFixed(2) + ' USDT\n' +
-                    'Hash: —\n' +
-                    'Foto: —';
+                    'Hash: â€”\n' +
+                    'Foto: â€”';
       await avisarAdmin(aviso, { reply_markup: kbDep(depId).reply_markup });
 
       await ctx.reply(
-        'Depósito creado (pendiente).\n' +
+        'DepÃ³sito creado (pendiente).\n' +
         'ID: ' + depId + '\n' +
         'Monto: ' + monto.toFixed(2) + ' USDT\n\n' +
-        'Envía el monto a esta wallet:\n' + WALLET_USDT + '\n\n' +
-        '👉 Envía el hash con: /tx ' + depId + ' TU_HASH_AQUI\n' +
-        '📷 Y envía una foto/captura del pago en este chat.\n\n' +
-        'Cuando el admin confirme la recepción, tu inversión será acreditada.'
+        'EnvÃ­a el monto a esta wallet:\n' + WALLET_USDT + '\n\n' +
+        'ðŸ‘‰ EnvÃ­a el hash con: /tx ' + depId + ' TU_HASH_AQUI\n' +
+        'ðŸ“· Y envÃ­a una foto/captura del pago en este chat.\n\n' +
+        'Cuando el admin confirme la recepciÃ³n, tu inversiÃ³n serÃ¡ acreditada.'
       );
 
       estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
+      await ctx.reply('MenÃº:', menu());
       return;
     }
 
@@ -338,7 +338,7 @@ bot.on('text', async (ctx) => {
     if (estado[chatId] === 'RET') {
       const monto = Number(txt.replace(',', '.'));
       if (isNaN(monto) || monto <= 0) {
-        await ctx.reply('Monto inválido. Intenta de nuevo.');
+        await ctx.reply('Monto invÃ¡lido. Intenta de nuevo.');
         return;
       }
       await asegurarUsuario(chatId);
@@ -365,11 +365,11 @@ bot.on('text', async (ctx) => {
         'Estado: pendiente.'
       );
       estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
+      await ctx.reply('MenÃº:', menu());
 
       if (insR && insR.data) {
         const rid = insR.data.id;
-        const avisoR = '🏦 Nuevo RETIRO pendiente\n' +
+        const avisoR = 'ðŸ¦ Nuevo RETIRO pendiente\n' +
                        'ID: ' + rid + '\n' +
                        'User: ' + chatId + '\n' +
                        'Monto: ' + monto.toFixed(2) + ' USDT';
@@ -379,11 +379,11 @@ bot.on('text', async (ctx) => {
     }
   } catch (e) {
     console.log(e);
-    try { await ctx.reply('Ocurrió un error.'); } catch {}
+    try { await ctx.reply('OcurriÃ³ un error.'); } catch {}
   }
 });
 
-// Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
+// Foto: guarda comprobante en depÃ³sito mÃ¡s reciente pendiente y lo manda al grupo
 bot.on('photo', async (ctx) => {
   try {
     const uid = ctx.from.id;
@@ -396,24 +396,24 @@ bot.on('photo', async (ctx) => {
       .select('id, estado').eq('telegram_id', uid).eq('estado', 'pendiente')
       .order('id', { ascending: false }).limit(1).maybeSingle();
 
-    if (!dep) return ctx.reply('No encuentro un depósito pendiente para guardar tu comprobante.');
+    if (!dep) return ctx.reply('No encuentro un depÃ³sito pendiente para guardar tu comprobante.');
 
     await supabase.from('depositos').update({ proof_file_id: fileId }).eq('id', dep.id);
-    await ctx.reply('Comprobante guardado para el depósito #' + dep.id + '.');
+    await ctx.reply('Comprobante guardado para el depÃ³sito #' + dep.id + '.');
 
     // Enviar la foto al grupo con botones
     try {
-      const caption = '🖼 Comprobante de DEPÓSITO\n' +
+      const caption = 'ðŸ–¼ Comprobante de DEPÃ“SITO\n' +
                       'ID: #' + dep.id + '\n' +
                       'User: ' + uid + '\n' +
-                      '— Adjunta botones para validar —';
+                      'â€” Adjunta botones para validar â€”';
       await avisarAdminFoto(fileId, caption, { reply_markup: kbDep(dep.id).reply_markup });
     } catch (e) { console.log('No pude mandar la foto al admin/grupo:', e.message || e); }
 
   } catch (e) { console.log(e); }
 });
 
-// /tx: guarda hash en un depósito pendiente del usuario y lo manda al grupo
+// /tx: guarda hash en un depÃ³sito pendiente del usuario y lo manda al grupo
 bot.command('tx', async (ctx) => {
   const parts = (ctx.message.text || '').trim().split(/\s+/);
   if (parts.length < 3) return ctx.reply('Uso: /tx <id_deposito> <hash>');
@@ -423,15 +423,15 @@ bot.command('tx', async (ctx) => {
   const { data: dep } = await supabase.from('depositos')
     .select('id, telegram_id, estado').eq('id', depId).single();
 
-  if (!dep || dep.telegram_id !== ctx.from.id) return ctx.reply('No encuentro ese depósito pendiente a tu nombre.');
-  if (dep.estado !== 'pendiente') return ctx.reply('Ese depósito ya no está pendiente.');
+  if (!dep || dep.telegram_id !== ctx.from.id) return ctx.reply('No encuentro ese depÃ³sito pendiente a tu nombre.');
+  if (dep.estado !== 'pendiente') return ctx.reply('Ese depÃ³sito ya no estÃ¡ pendiente.');
 
   await supabase.from('depositos').update({ tx: hash }).eq('id', depId);
-  await ctx.reply('Hash guardado para el depósito #' + depId + '.');
+  await ctx.reply('Hash guardado para el depÃ³sito #' + depId + '.');
 
   // Aviso al grupo con botones
-  const texto = '🧾 Hash recibido\n' +
-                'Depósito: #' + depId + '\n' +
+  const texto = 'ðŸ§¾ Hash recibido\n' +
+                'DepÃ³sito: #' + depId + '\n' +
                 'User: ' + ctx.from.id + '\n' +
                 'Hash: ' + hash;
   try {
@@ -441,21 +441,21 @@ bot.command('tx', async (ctx) => {
   }
 });
 
-// ======== ADMIN – Depósitos (listado y foto) ========
+// ======== ADMIN â€“ DepÃ³sitos (listado y foto) ========
 bot.command('pendientes', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
   const { data, error } = await supabase.from('depositos')
     .select('id, telegram_id, monto, creado_en, tx, proof_file_id')
     .eq('estado', 'pendiente').order('id', { ascending: true });
   if (error) return ctx.reply('Error listando pendientes.');
-  if (!data || data.length === 0) return ctx.reply('Sin depósitos pendientes.');
-  let msg = 'Depósitos pendientes:\n';
+  if (!data || data.length === 0) return ctx.reply('Sin depÃ³sitos pendientes.');
+  let msg = 'DepÃ³sitos pendientes:\n';
   data.forEach(d => {
     msg += '#' + d.id +
       ' | user ' + d.telegram_id +
       ' | ' + Number(d.monto).toFixed(2) + ' USDT' +
-      ' | hash: ' + (d.tx ? '✔' : '—') +
-      ' | foto: ' + (d.proof_file_id ? '✔' : '—') +
+      ' | hash: ' + (d.tx ? 'âœ”' : 'â€”') +
+      ' | foto: ' + (d.proof_file_id ? 'âœ”' : 'â€”') +
       '\n';
   });
   await ctx.reply(msg);
@@ -469,14 +469,14 @@ bot.command('verfoto', async (ctx) => {
 
   const { data: dep } = await supabase.from('depositos')
     .select('proof_file_id').eq('id', depId).single();
-  if (!dep) return ctx.reply('Depósito no encontrado.');
-  if (!dep.proof_file_id) return ctx.reply('Ese depósito no tiene foto.');
+  if (!dep) return ctx.reply('DepÃ³sito no encontrado.');
+  if (!dep.proof_file_id) return ctx.reply('Ese depÃ³sito no tiene foto.');
 
   try { await ctx.replyWithPhoto(dep.proof_file_id); }
-  catch (e) { console.log(e); await ctx.reply('No pude enviar la foto (file_id inválido).'); }
+  catch (e) { console.log(e); await ctx.reply('No pude enviar la foto (file_id invÃ¡lido).'); }
 });
 
-// ======== ADMIN – Acciones depósito por botones ========
+// ======== ADMIN â€“ Acciones depÃ³sito por botones ========
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
   try {
     if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
@@ -508,13 +508,13 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
     try {
       await bot.telegram.sendMessage(
         userId,
-        'Depósito aprobado: ' + monto.toFixed(2) + ' USDT.\n' +
-        'A tu principal se acreditó: ' + principalNeto.toFixed(2) + ' USDT.'
+        'DepÃ³sito aprobado: ' + monto.toFixed(2) + ' USDT.\n' +
+        'A tu principal se acreditÃ³: ' + principalNeto.toFixed(2) + ' USDT.'
       );
     } catch {}
 
     await ctx.editMessageReplyMarkup(); // quita los botones
-    await ctx.reply('✅ Depósito #' + depId + ' aprobado (user ' + userId + ').');
+    await ctx.reply('âœ… DepÃ³sito #' + depId + ' aprobado (user ' + userId + ').');
   } catch (e) { console.log(e); }
 });
 
@@ -529,14 +529,14 @@ bot.action(/dep:reject:(\d+)/, async (ctx) => {
 
     await supabase.from('depositos').update({ estado: 'rechazado' }).eq('id', depId);
 
-    try { await bot.telegram.sendMessage(dep.telegram_id, 'Tu depósito #' + depId + ' fue RECHAZADO.'); } catch {}
+    try { await bot.telegram.sendMessage(dep.telegram_id, 'Tu depÃ³sito #' + depId + ' fue RECHAZADO.'); } catch {}
 
     await ctx.editMessageReplyMarkup();
-    await ctx.reply('❌ Depósito #' + depId + ' rechazado.');
+    await ctx.reply('âŒ DepÃ³sito #' + depId + ' rechazado.');
   } catch (e) { console.log(e); }
 });
 
-// ======== ADMIN – Retiros (lista) ========
+// ======== ADMIN â€“ Retiros (lista) ========
 bot.command('retiros', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
   const parts = (ctx.message.text || '').trim().split(/\s+/);
@@ -556,7 +556,7 @@ bot.command('retiros', async (ctx) => {
   await ctx.reply(msg);
 });
 
-// ======== ADMIN – Acciones retiro por botones ========
+// ======== ADMIN â€“ Acciones retiro por botones ========
 bot.action(/ret:approve:(\d+)/, async (ctx) => {
   try {
     if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
@@ -570,7 +570,7 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
 
     try { await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro de ' + Number(r.monto).toFixed(2) + ' USDT fue APROBADO.'); } catch {}
     await ctx.editMessageReplyMarkup();
-    await ctx.reply('✅ Retiro #' + rid + ' aprobado.');
+    await ctx.reply('âœ… Retiro #' + rid + ' aprobado.');
   } catch (e) { console.log(e); }
 });
 
@@ -590,7 +590,7 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
 
     try { await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro de ' + Number(r.monto).toFixed(2) + ' USDT fue RECHAZADO. Monto devuelto.'); } catch {}
     await ctx.editMessageReplyMarkup();
-    await ctx.reply('❌ Retiro #' + rid + ' rechazado y monto devuelto.');
+    await ctx.reply('âŒ Retiro #' + rid + ' rechazado y monto devuelto.');
   } catch (e) { console.log(e); }
 });
 
@@ -634,12 +634,12 @@ app.listen(PORT, async () => {
     if (HOST_URL) {
       const url = ${HOST_URL}${webhookPath};
       await bot.telegram.setWebhook(url);
-      console.log('✅ Webhook configurado en:', url);
+      console.log('âœ… Webhook configurado en:', url);
     } else {
       await bot.launch();
-      console.log('🟠 Bot lanzado en modo polling (HOST_URL no definido).');
+      console.log('ðŸŸ  Bot lanzado en modo polling (HOST_URL no definido).');
     }
   } catch (e) {
-    console.log('❌ Error configurando webhook/polling:', e.message || e);
+    console.log('âŒ Error configurando webhook/polling:', e.message || e);
   }
 });
