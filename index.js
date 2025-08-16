@@ -172,108 +172,98 @@ async function pagarDiario() {
 }
 // === Handlers Bot ===
 bot.command('pagarhoy', async (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) {
-    return;
-  }
-  const n = await pagarDiario();
-  await ctx.reply(`Pago diario ejecutado. Usuarios pagados: ${n}`);
+    // Solo el admin puede ejecutar este comando
+    if (ctx.from.id !== ADMIN_ID) return;
+
+    const n = await pagarDiario();
+    await ctx.reply(`Pago diario ejecutado. Usuarios pagados: ${n}`);
 });
 
 bot.start(async (ctx) => {
-  const chatId = ctx.from.id;
-  await asegurarUsuario(chatId);
+    try {
+        const chatId = ctx.from.id;
+        await asegurarUsuario(chatId);
 
-  // Soporte de referidos: /start ref_12345
-  const text = ctx.message.text || '';
-  const partes = text.split(' ');
-  if (partes.length > 1) {
-    const arg = partes[1];
-    if (arg.indexOf('ref_') === 0) {
-      const patroId = Number(arg.replace('ref_', ''));
-      if (patroId && patroId !== chatId) {
-        await registrarReferencia(patroId, chatId);
-      }
+        // Soporte de referidos: /start ref_12345
+        const text = ctx.message.text || '';
+        const partes = text.split(' ');
+        if (partes.length > 1) {
+            const arg = partes[1];
+            if (arg.indexOf('ref_') === 0) {
+                const patroId = Number(arg.replace('ref_', ''));
+                if (patroId && patroId !== chatId) {
+                    await registrarReferencia(patroId, chatId);
+                }
+            }
+        }
+
+        await ctx.reply('Bienvenido. Usa el menú:', menu());
+    } catch (e) {
+        console.log(e);
+        await ctx.reply('Ocurrió un error al iniciar.');
     }
-  }
-
-  try {
-    await ctx.reply('Bienvenido. Usa el menú:', menu());
-  } catch (e) {
-    console.log(e);
-    await ctx.reply('Ocurrió un error al iniciar.');
-  }
-});
-  
-  }
-
-  try {
-    await ctx.reply('Bienvenido. Usa el menú:', menu());
-  } catch (e) {
-    console.log(e);
-    await ctx.reply('Ocurrió un error al iniciar.');
-  }
 });
 
 bot.hears('Invertir', async (ctx) => {
-  try {
-    const chatId = ctx.from.id;
-    await asegurarUsuario(chatId);
-    estado[chatId] = 'INV';
-    await ctx.reply(
-      'Escribe el monto a invertir (mínimo ' + MIN_INVERSION + ' USDT). Solo número, ejemplo: 100.00'
-    );
-  } catch (e) { console.log(e); }
+    try {
+        const chatId = ctx.from.id;
+        await asegurarUsuario(chatId);
+        estado[chatId] = 'INV';
+        await ctx.reply(
+            'Escribe el monto a invertir (mínimo ' + MIN_INVERSION + ' USDT). Solo número, ejemplo: 50.00'
+        );
+    } catch (e) { console.log(e); }
 });
 
 bot.hears('Retirar', async (ctx) => {
-  try {
-    const chatId = ctx.from.id;
-    await asegurarUsuario(chatId);
-    const car = await carteraDe(chatId);
-    await ctx.reply(
-      'Tu saldo disponible es: ' + Number(car.saldo || 0).toFixed(2) + ' USDT\n' +
-      'Fee de retiro: ' + RETIRO_FEE_USDT + ' USDT (se descuenta además del monto solicitado).\n' +
-      'Escribe el monto a retirar (solo número, ejemplo: 25.00)'
-    );
-    estado[chatId] = 'RET';
-  } catch (e) { console.log(e); }
+    try {
+        const chatId = ctx.from.id;
+        await asegurarUsuario(chatId);
+        const car = await carteraDe(chatId);
+        await ctx.reply(
+            'Tu saldo disponible es: ' + Number(car.saldo || 0).toFixed(2) + ' USDT\n' +
+            'Fee de retiro: ' + RETIRO_FEE_USDT + ' USDT (se descuenta además del monto solicitado)\n' +
+            'Escribe el monto a retirar (solo número, ejemplo: 25.00)'
+        );
+        estado[chatId] = 'RET';
+    } catch (e) { console.log(e); }
 });
 
 bot.hears('Saldo', async (ctx) => {
-  try {
-    const chatId = ctx.from.id;
-    await asegurarUsuario(chatId);
-    const car = await carteraDe(chatId);
+    try {
+        const chatId = ctx.from.id;
+        await asegurarUsuario(chatId);
+        const car = await carteraDe(chatId);
 
-    const invertidoNeto = Number(car.invertido || 0);
-    const disponible     = Number(car.saldo || 0);
-    const bruto          = brutoDesdeNeto(invertidoNeto);
-    const retirado       = await totalRetirado(chatId);
-    const tope           = tope500Bruto(bruto);
-    const pagadoHastaAhora = disponible + retirado;
-    const progreso       = tope > 0 ? Math.min(100, (pagadoHastaAhora / tope) * 100) : 0;
+        const invertidoNeto = Number(car.invertido || 0);
+        const disponible    = Number(car.saldo || 0);
+        const bruto         = brutoDesdeNeto(invertidoNeto);
+        const retirado      = await totalRetirado(chatId);
+        const tope          = tope500Bruto(bruto);
+        const pagadoHastaAhora = disponible + retirado;
+        const progreso      = tope > 0 ? Math.min(100, (pagadoHastaAhora / tope) * 100) : 0;
 
-    await ctx.reply(
-      'Tu saldo:' +
-      '\n- Principal (invertido): ' + invertidoNeto.toFixed(2) +
-      '\n- Disponible: ' + disponible.toFixed(2) +
-      '\n- Total: ' + invertidoNeto.toFixed(2) +
-      '\n' +
-      '\nBruto (base para 500%): ' + bruto.toFixed(2) +
-      '\nProgreso hacia 500%: ' + progreso.toFixed(2) + '%'
-    );
-  } catch (e) { console.log(e); }
+        await ctx.reply(
+            'Tu saldo:' +
+            '\n Principal (invertido): ' + invertidoNeto.toFixed(2) +
+            '\n Disponible: ' + disponible.toFixed(2) +
+            '\n Total: ' + invertidoNeto.toFixed(2) +
+            '\n' +
+            '\nBruto (base para 500%): ' + bruto.toFixed(2) +
+            '\nProgreso hacia 500%: ' + progreso.toFixed(2) + '%'
+        );
+    } catch (e) { console.log(e); }
 });
 
 bot.hears('Referidos', async (ctx) => {
-  try {
-    const chatId = ctx.from.id;
-    const enlace = 'https://t.me/' + (ctx.botInfo.username || 'Fortunamoneybot') + '?start=ref_' + chatId;
-    await ctx.reply(
-      'Tu enlace de referido:\n' + enlace +
-      '\nGanas 10% de cada inversión de tu referido (retirable). Ese 10% cuenta hacia el 500%.'
-    );
-  } catch (e) { console.log(e); }
+    try {
+        const chatId = ctx.from.id;
+        const enlace = 'https://t.me/' + (ctx.botInfo.username || 'FortuBot') + '?start=ref_' + chatId;
+        await ctx.reply(
+            'Tu enlace de referido:\n' + enlace +
+            '\nGanas 10% de cada inversión de tu referido (retirable).'
+        );
+    } catch (e) { console.log(e); }
 });
 
 // Pago manual para pruebas (también expuesto como /run-pago)
@@ -693,6 +683,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
