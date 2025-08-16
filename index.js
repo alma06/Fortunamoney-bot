@@ -519,75 +519,91 @@ bot.command('verfoto', async (ctx) => {
   catch (e) { console.log(e); await ctx.reply('No pude enviar la foto (file_id inválido).'); }
 });
 
-// ======== ADMIN – Acciones depósito por botones ========
+// ======= ADMIN - Acciones depósito por botones =======
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
   try {
-    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
+    if (ctx.from.id != ADMIN_ID && ctx.chat.id != ADMIN_GROUP_ID) return;
     const depId = Number(ctx.match[1]);
 
-    const { data: dep } = await supabase.from('depositos').select('*').eq('id', depId).single();
+    const { data: dep } = await supabase
+      .from('depositos')
+      .select('*')
+      .eq('id', depId)
+      .single();
+
     if (!dep) return ctx.answerCbQuery('No encontrado');
-    if (dep.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
+    if (dep.estado != 'pendiente') return ctx.answerCbQuery('Ya procesado');
 
     const userId = dep.telegram_id;
-    const monto  = Number(dep.monto);
+    const monto = Number(dep.monto);
     const comision = monto * 0.10;
     const principalNeto = monto - comision;
 
+    // Asegurar usuario y actualizar cartera
     await asegurarUsuario(userId);
-
-    const patroId = await patrocinadorDe(userId);
     const carU = await carteraDe(userId);
-    await actualizarCartera(userId, { invertido: Number(carU.invertido || 0) + principalNeto });
+    await actualizarCartera(userId, {
+      invertido: Number(carU.invertido || 0) + principalNeto,
+    });
 
-if (patroId) {
-  await asegurarUsuario(patroId);
-  const carP = await carteraDe(patroId);
-  const bono = Number(monto) * 0.10;
-  const nuevoSaldo = Number(((Number(carP.saldo || 0)) + bono).toFixed(2));
+    // Buscar patrocinador
+    const patroId = await patrocinadorDe(userId);
 
-  await actualizarCartera(patroId, { saldo: nuevoSaldo });
+    if (patroId) {
+      await asegurarUsuario(patroId);
+      const carP = await carteraDe(patroId);
+      const bono = monto * 0.10; // 10% de bono
+      await actualizarCartera(patroId, {
+        saldo: Number(carP.saldo || 0) + bono,
+      });
 
-  try {
-    await bot.telegram.sendMessage(
-      patroId,
-      `🎉 Has recibido un bono de referido del 10%!\nMonto: ${bono.toFixed(2)} USDT\nPor el depósito de tu referido.`
-    );
-  } catch (e) {
-    console.log('No se pudo avisar al patrocinador:', e);
-  }
-}
-    await supabase.from('depositos').update({ estado: 'aprobado', aprobado_en: new Date().toISOString() }).eq('id', depId);
+      // Avisar al patrocinador
+      try {
+        await bot.telegram.sendMessage(
+          patroId,
+          `🎉 Has recibido un bono de referido del 10%\nMonto: ${bono.toFixed(
+            2
+          )} USDT\nPor el depósito de tu referido.`
+        );
+      } catch (e) {
+        console.log('No se pudo avisar al patrocinador:', e);
+      }
+    }
+
+    // Marcar depósito como aprobado
+    await supabase
+      .from('depositos')
+      .update({
+        estado: 'aprobado',
+        aprobado_en: new Date().toISOString(),
+      })
+      .eq('id', depId);
 
     try {
       await bot.telegram.sendMessage(
         userId,
-        'Depósito aprobado: ' + monto.toFixed(2) + ' USDT.\n' +
-        'A tu principal se acreditó: ' + principalNeto.toFixed(2) + ' USDT.'
+        'Depósito aprobado: ' +
+          monto.toFixed(2) +
+          ' USDT.\n' +
+          'A tu principal se acreditó: ' +
+          principalNeto.toFixed(2) +
+          ' USDT.'
       );
     } catch {}
 
     await ctx.editMessageReplyMarkup(); // quita los botones
-    await ctx.reply('Depósito #' + depId + ' aprobado (user ' + userId + ').');
-  } catch (e) { console.log(e); }
-});
-
-bot.action(/dep:reject:(\d+)/, async (ctx) => {
-  try {
-    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
-    const depId = Number(ctx.match[1]);
-
-    const { data: dep } = await supabase.from('depositos').select('*').eq('id', depId).single();
-    if (!dep) return ctx.answerCbQuery('No encontrado');
-    if (dep.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
-
-    await supabase.from('depositos').update({ estado: 'rechazado' }).eq('id', depId);
-
-    try { await bot.telegram.sendMessage(dep.telegram_id, 'Tu depósito #' + depId + ' fue RECHAZADO.'); } catch {}
-
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply('Depósito #' + depId + ' rechazado.');
-  } catch (e) { console.log(e); }
+    await ctx.reply(
+      'Depósito #' +
+        depId +
+        ' aprobado (user ' +
+        userId +
+        ', monto ' +
+        monto.toFixed(2) +
+        ' USDT)'
+    );
+  } catch (e) {
+    console.log(e);
+  }
 });
 
 // ======== ADMIN – Retiros (lista) ========
@@ -698,6 +714,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
