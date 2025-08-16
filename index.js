@@ -603,18 +603,17 @@ bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
       return ctx.answerCbQuery('Este retiro ya fue procesado');
     }
 
-    // Lee FEE_RETIRO desde env o constante; fuerza número; fallback = 1
+    // Lee FEE_RETIRO (env o constante). Fuerza número; fallback = 1
     const feeEnv = (typeof FEE_RETIRO !== 'undefined') ? FEE_RETIRO : process.env.FEE_RETIRO;
     const feeNum = Number(feeEnv);
     const fee = Number.isFinite(feeNum) ? feeNum : 1;
 
-    // Devolver al saldo del usuario (monto + fee)
+    // Devolver al saldo del usuario: monto + fee
     const car = await carteraDe(r.telegram_id);
     const saldoActual = Number(car?.saldo || 0);
     const devolver = Number(r.monto || 0) + fee;
     const nuevoSaldo = saldoActual + devolver;
 
-    // Debug en logs de Render
     console.log('Rechazo retiro =>', { rid, monto: r.monto, fee, saldoActual, devolver, nuevoSaldo });
 
     await actualizarCartera(r.telegram_id, { saldo: nuevoSaldo });
@@ -625,7 +624,7 @@ bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
       .update({ estado: 'rechazado' })
       .eq('id', rid);
 
-    // Quitar los botones del mensaje de admin (si aplica)
+    // Quitar botones del mensaje de admin (si aplica)
     try { await ctx.editMessageReplyMarkup(); } catch (_) {}
 
     // Notificar al usuario
@@ -636,17 +635,11 @@ bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
     );
 
     return ctx.answerCbQuery('Rechazado y devuelto ✅');
-  } catch (e) {
+} catch (e) {
     console.log('Error rechazando retiro:', e);
     return ctx.answerCbQuery('Error al rechazar');
   }
-});
-
-// ===== Utilidad: ver el chat_id del chat actual =====
-bot.command('aqui', async (ctx) => {
-  const cid = ctx.chat && ctx.chat.id;
-  await ctx.reply('chat_id: ' + cid);
-});
+}); // <-- solo este
 
 // =================== HTTP endpoints ===================
 
@@ -691,6 +684,7 @@ app.listen(PORT, async () => {
     console.log('❌ Error configurando webhook/polling:', e.message || e);
   }
 });
+
 
 
 
