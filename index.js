@@ -522,78 +522,83 @@ bot.command('verfoto', async (ctx) => {
 // ======= ADMIN - Acciones depósito por botones =======
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
   try {
-    if (ctx.from.id != ADMIN_ID && ctx.chat.id != ADMIN_GROUP_ID) return;
+    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
     const depId = Number(ctx.match[1]);
 
     const { data: dep } = await supabase
-  .from('depositos')
-  .select('*')
-  .eq('id', depId)
-  .single();
+      .from('depositos')
+      .select('*')
+      .eq('id', depId)
+      .single();
 
-if (!dep) return ctx.answerCbQuery('No encontrado');
-if (dep.estado != 'pendiente') return ctx.answerCbQuery('Ya procesado');
+    if (!dep) return ctx.answerCbQuery('No encontrado');
+    if (dep.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
 
-const userId = dep.telegram_id;
-const monto = Number(dep.monto);
-const comision = monto * 0.10;
-const principalNeto = monto - comision;
+    const userId = dep.telegram_id;
+    const monto = Number(dep.monto);
+    const comision = monto * 0.10;
+    const principalNeto = monto - comision;
 
-// Asegurar usuario y actualizar su cartera
-await asegurarUsuario(userId);
-const carU = await carteraDe(userId);
-await actualizarCartera(userId, {
-  invertido: Number(carU.invertido || 0) + principalNeto,
-});
+    // Asegurar usuario y actualizar su cartera
+    await asegurarUsuario(userId);
+    const carU = await carteraDe(userId);
+    await actualizarCartera(userId, {
+      invertido: Number(carU.invertido || 0) + principalNeto,
+    });
 
-// Buscar patrocinador (solo una vez)
-const patroId = await patrocinadorDe(userId);
+    // Buscar patrocinador (SOLO UNA VEZ)
+    const patroId = await patrocinadorDe(userId);
 
-if (patroId) {
-  await asegurarUsuario(patroId);
-  const carP = await carteraDe(patroId);
-  const bono = monto * 0.10; // 10% de bono
-  await actualizarCartera(patroId, {
-    saldo: Number(carP.saldo || 0) + bono,
-  });
+    if (patroId) {
+      await asegurarUsuario(patroId);
+      const carP = await carteraDe(patroId);
+      const bono = monto * 0.10; // 10% de bono
+      await actualizarCartera(patroId, {
+        saldo: Number(carP.saldo || 0) + bono,
+      });
 
-  // Avisar al patrocinador
-  try {
-    await bot.telegram.sendMessage(
-      patroId,
-      `🎉 Has recibido un bono de referido del 10%\nMonto: ${bono.toFixed(2)} USDT\nPor el depósito de tu referido.`
+      // Avisar al patrocinador
+      try {
+        await bot.telegram.sendMessage(
+          patroId,
+          '🎉 Has recibido un bono de referido del 10%\n' +
+          'Monto: ' + bono.toFixed(2) + ' USDT\n' +
+          'Por el depósito de tu referido.'
+        );
+      } catch (e) {
+        console.log('No se pudo avisar al patrocinador:', e);
+      }
+    }
+
+    // Marcar depósito como aprobado
+    await supabase
+      .from('depositos')
+      .update({
+        estado: 'aprobado',
+        aprobado_en: new Date().toISOString(),
+      })
+      .eq('id', depId);
+
+    // Avisar al usuario
+    try {
+      await bot.telegram.sendMessage(
+        userId,
+        'Depósito aprobado: ' + monto.toFixed(2) + ' USDT.\n' +
+        'A tu principal se acreditó: ' + principalNeto.toFixed(2) + ' USDT.'
+      );
+    } catch (e) {
+      console.log('No se pudo avisar al usuario:', e);
+    }
+
+    await ctx.editMessageReplyMarkup(); // quita los botones
+    await ctx.reply(
+      'Depósito # ' + depId +
+      ' aprobado (user ' + userId +
+      ', monto ' + monto.toFixed(2) + ' USDT)'
     );
-} catch (e) {
-  console.log(e);
-}
-});
-
-// Marcar depósito como aprobado
-await supabase
-  .from('depositos')
-  .update({
-    estado: 'aprobado',
-    aprobado_en: new Date().toISOString(),
-  })
-  .eq('id', depId);
-
-// Avisar al usuario
-try {
-  await bot.telegram.sendMessage(
-    userId,
-    'Depósito aprobado: ' + monto.toFixed(2) + ' USDT.\n' +
-    'A tu principal se acreditó: ' + principalNeto.toFixed(2) + ' USDT.'
-  );
-} catch (e) {
-  console.log('No se pudo avisar al usuario:', e);
-}
-
-await ctx.editMessageReplyMarkup(); // quita los botones
-await ctx.reply(
-  'Depósito #' + depId +
-  ' aprobado (user ' + userId +
-  ', monto ' + monto.toFixed(2) + ' USDT)'
-);
+  } catch (e) {
+    console.log(e);
+  }
 });
 
 // ======== ADMIN – Retiros (lista) ========
@@ -704,6 +709,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
