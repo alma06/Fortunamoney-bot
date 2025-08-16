@@ -614,6 +614,7 @@ app.get('/run-pago', async (req, res) => {
 
 // === Webhook de Telegram (con LOG) ===
 const webhookPath = `/webhook/${BOT_TOKEN}`;
+
 // GET de prueba
 app.get(webhookPath, (_req, res) => res.status(200).send('OK'));
 
@@ -636,11 +637,9 @@ app.listen(PORT, async () => {
       console.log('Webhook configurado en:', url);
     } else {
       await bot.launch();
-      console.log('Bot lanzado en modo polling (HOST_URL no definido).');
+      console.log('Bot lanzado en modo polling (HOST_URL no definido)');
     }
   } catch (e) {
-    console.log('Error configurando webhook/polling:', e.message || e);
+    console.log('Error configurando webhook/polling:', e.message);
   }
 });
-
-
