@@ -170,11 +170,16 @@ async function pagarDiario() {
     return 0;
   }
 }
-// ======== Handlers Bot ========
-bot.start(async (ctx) => {
-  try {
-    const chatId = ctx.from.id;
-    await asegurarUsuario(chatId);
+// === Handlers Bot ===
+bot.command('pagarhoy', async (ctx) => {
+  // Solo el admin puede ejecutar este comando
+  if (ctx.from.id !== ADMIN_ID) {
+    return; // Ignora si no es el admin
+  }
+
+  const n = await pagarDiario();
+  await ctx.reply(`Pago diario ejecutado. Usuarios pagados: ${n}`);
+});
 
     // Soporte de referidos: /start ref_12345
     const text = ctx.message.text || '';
@@ -673,4 +678,5 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
