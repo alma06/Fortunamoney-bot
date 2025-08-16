@@ -39,6 +39,17 @@ process.exit(1);
 // ======== INIT ========
 const bot = new Telegraf(BOT_TOKEN);
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+// 🔎 LOG de todo update que llegue (para depurar en Render)
+bot.use((ctx, next) => {
+  console.log("Update recibido:", JSON.stringify(ctx.update));
+  return next();
+});
+
+// 🧪 Comando mínimo de prueba
+bot.command('aqui', async (ctx) => {
+  const cid = (ctx.chat && ctx.chat.id) || (ctx.from && ctx.from.id);
+  await ctx.reply('chat_id: ' + cid);
+});
 
 // Estado sencillo en memoria
 const estado = {}; // estado[chatId] = 'INV' | 'RET'
@@ -217,4 +228,5 @@ app.listen(PORT, async () => {
 
 process.once('SIGINT', () => { try { bot.stop('SIGINT'); } catch (_) {} });
 process.once('SIGTERM', () => { try { bot.stop('SIGTERM'); } catch (_) {} });
+
 
