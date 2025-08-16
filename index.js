@@ -603,9 +603,10 @@ bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
       return ctx.answerCbQuery('Este retiro ya fue procesado');
     }
 
-    // Calcular devolución: monto + fee
-    const fee = typeof FEE_RETIRO === 'number' ? FEE_RETIRO : 1;
-    const devolver = Number(r.monto || 0) + Number(fee);
+    // Lee FEE_RETIRO desde env o constante y fuerza número, con fallback a 1
+const feeEnv = (typeof FEE_RETIRO !== 'undefined') ? FEE_RETIRO : process.env.FEE_RETIRO;
+const feeNum = Number(feeEnv);
+const fee = Number.isFinite(feeNum) ? feeNum : 1;
 
     // Devolver al saldo del usuario
     const car = await carteraDe(r.telegram_id);
@@ -685,6 +686,7 @@ app.listen(PORT, async () => {
     console.log('❌ Error configurando webhook/polling:', e.message || e);
   }
 });
+
 
 
 
