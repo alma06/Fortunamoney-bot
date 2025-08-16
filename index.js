@@ -556,88 +556,48 @@ bot.command('retiros', async (ctx) => {
   await ctx.reply(msg);
 });
 
-// ======== ADMIN – Acciones retiro por botones (RECHAZAR: devuelve monto + fee) ========
+// ======== ADMIN – Acciones retiro por botones ========
+bot.action(/ret:approve:(\d+)/, async (ctx) => {
+  try {
+    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
+    const rid = Number(ctx.match[1]);
+
+    const { data: r } = await supabase.from('retiros').select('*').eq('id', rid).single();
+    if (!r) return ctx.answerCbQuery('No encontrado');
+    if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
+
+    await supabase.from('retiros').update({ estado: 'aprobado', aprobado_en: new Date().toISOString() }).eq('id', rid);
+
+    try { await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro de ' + Number(r.monto).toFixed(2) + ' USDT fue APROBADO.'); } catch {}
+    await ctx.editMessageReplyMarkup();
+    await ctx.reply('✅ Retiro #' + rid + ' aprobado.');
+  } catch (e) { console.log(e); }
+});
+
 bot.action(/ret:reject:(\d+)/, async (ctx) => {
   try {
     if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
-
     const rid = Number(ctx.match[1]);
 
-    const { data: r, error } = await supabase
-      .from('retiros')
-      .select('*')
-      .eq('id', rid)
-      .single();
-
-    if (error || !r) return ctx.answerCbQuery('No encontrado');
+    const { data: r } = await supabase.from('retiros').select('*').eq('id', rid).single();
+    if (!r) return ctx.answerCbQuery('No encontrado');
     if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
 
-    const monto  = Number(r.monto || 0);
-    const fee    = Number(RETIRO_FEE_USDT || 0);
-    const refund = monto + fee;   // ✅ ahora devuelve el total con fee incluido
-
-    // Marcar retiro rechazado
-    await supabase
-      .from('retiros')
-      .update({ estado: 'rechazado' })
-      .eq('id', rid);
-
-// === Acción para rechazar retiro: devuelve monto + fee ===
-bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
-  try {
-    const rid = Number(ctx.match[1]);
-
-    // Leer el retiro
-    const { data: r, error } = await supabase
-      .from('retiros')
-      .select('id, telegram_id, monto, estado')
-      .eq('id', rid)
-      .single();
-
-    if (error || !r) {
-      console.log('No se encontró retiro:', error);
-      return ctx.answerCbQuery('No existe el retiro');
-    }
-
-    if (r.estado !== 'pendiente') {
-      return ctx.answerCbQuery('Este retiro ya fue procesado');
-    }
-
-    // Leer FEE_RETIRO (env o constante). Forzar número; fallback = 1
-    const feeEnv = (typeof FEE_RETIRO !== 'undefined') ? FEE_RETIRO : process.env.FEE_RETIRO;
-    const feeNum = Number(feeEnv);
-    const fee = Number.isFinite(feeNum) ? feeNum : 1;
-
-    // Calcular devolución: monto + fee
-    const devolver = Number(r.monto || 0) + fee;
-
-    // Devolver al saldo del usuario
     const car = await carteraDe(r.telegram_id);
-    const saldoActual = Number(car?.saldo || 0);
-    const nuevoSaldo = saldoActual + devolver;
-    await actualizarCartera(r.telegram_id, { saldo: nuevoSaldo });
+    await actualizarCartera(r.telegram_id, { saldo: Number(car.saldo || 0) + Number(r.monto || 0) + 0 }); // el fee ya fue descontado al crear
 
-    // Marcar retiro como rechazado
-    await supabase
-      .from('retiros')
-      .update({ estado: 'rechazado' })
-      .eq('id', rid);
+    await supabase.from('retiros').update({ estado: 'rechazado' }).eq('id', rid);
 
-    // Quitar botones del admin (si aplica)
-    try { await ctx.editMessageReplyMarkup(); } catch (_) {}
+    try { await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro de ' + Number(r.monto).toFixed(2) + ' USDT fue RECHAZADO. Monto devuelto.'); } catch {}
+    await ctx.editMessageReplyMarkup();
+    await ctx.reply('❌ Retiro #' + rid + ' rechazado y monto devuelto.');
+  } catch (e) { console.log(e); }
+});
 
-    // Notificar al usuario
-    await bot.telegram.sendMessage(
-      r.telegram_id,
-      `❌ Tu retiro de ${Number(r.monto).toFixed(2)} USDT fue RECHAZADO.\n` +
-      `Monto + fee devueltos: ${devolver.toFixed(2)} USDT.`
-    );
-
-    return ctx.answerCbQuery('Rechazado y devuelto ✅');
-  } catch (e) {
-    console.log('Error rechazando retiro:', e);
-    return ctx.answerCbQuery('Error al rechazar');
-  }
+// ======== Utilidad: ver el chat_id del chat actual ========
+bot.command('aqui', async (ctx) => {
+  const cid = ctx.chat && ctx.chat.id;
+  await ctx.reply('chat_id: ' + cid);
 });
 
 // =================== HTTP endpoints ===================
@@ -654,7 +614,7 @@ app.get('/run-pago', async (req, res) => {
 });
 
 // === Webhook de Telegram (con LOG) ===
-const webhookPath = `/webhook/${BOT_TOKEN}`;
+const webhookPath = /webhook/${BOT_TOKEN};
 
 // GET de prueba
 app.get(webhookPath, (_req, res) => res.status(200).send('OK'));
@@ -672,7 +632,7 @@ app.listen(PORT, async () => {
 
   try {
     if (HOST_URL) {
-      const url = `${HOST_URL}${webhookPath}`;
+      const url = ${HOST_URL}${webhookPath};
       await bot.telegram.setWebhook(url);
       console.log('✅ Webhook configurado en:', url);
     } else {
@@ -683,13 +643,3 @@ app.listen(PORT, async () => {
     console.log('❌ Error configurando webhook/polling:', e.message || e);
   }
 });
-
-
-
-
-
-
-
-
-
-
