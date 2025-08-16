@@ -190,9 +190,13 @@ res.send('Pago diario ejecutado. Usuarios pagados: ' + n);
 // Webhook de Telegram
 const webhookPath = '/webhook/' + BOT_TOKEN;
 
-// Aquí registramos la ruta correcta pasando el path al callback
-app.use(webhookPath, bot.webhookCallback(webhookPath));
+// GET de prueba (si abres la URL en el navegador debe responder 200 OK)
+app.get(webhookPath, (_req, res) => res.status(200).send('OK'));
 
+// Handler REAL del webhook (Telegram envía POST)
+app.post(webhookPath, (req, res) => {
+  return bot.webhookCallback(webhookPath)(req, res);
+});
 // ========= Arranque (Webhook si hay HOST_URL; si no, polling local) =========
 app.listen(PORT, async () => {
     console.log('HTTP server on port', PORT);
@@ -213,3 +217,4 @@ app.listen(PORT, async () => {
 
 process.once('SIGINT', () => { try { bot.stop('SIGINT'); } catch (_) {} });
 process.once('SIGTERM', () => { try { bot.stop('SIGTERM'); } catch (_) {} });
+
