@@ -199,7 +199,7 @@ res.send('Pago diario ejecutado. Usuarios pagados: ' + n);
 });
 
 // ===== Webhook de Telegram =====
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'devsecret123'; // SIN caracteres raros
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'fortunamoney2025';
 const webhookPath = /webhook/${WEBHOOK_SECRET};
 
 // GET de prueba (si abres la URL en el navegador debe responder 200 OK)
@@ -230,6 +230,7 @@ app.listen(PORT, async () => {
 
 process.once('SIGINT', () => { try { bot.stop('SIGINT'); } catch (_) {} });
 process.once('SIGTERM', () => { try { bot.stop('SIGTERM'); } catch (_) {} });
+
 
 
 
