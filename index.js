@@ -172,30 +172,45 @@ async function pagarDiario() {
 }
 // === Handlers Bot ===
 bot.command('pagarhoy', async (ctx) => {
-  // Solo el admin puede ejecutar este comando
   if (ctx.from.id !== ADMIN_ID) {
-    return; // Ignora si no es el admin
+    return;
   }
-
   const n = await pagarDiario();
   await ctx.reply(`Pago diario ejecutado. Usuarios pagados: ${n}`);
 });
 
-    // Soporte de referidos: /start ref_12345
-    const text = ctx.message.text || '';
-    const partes = text.split(' ');
-    if (partes.length > 1) {
-      const arg = partes[1];
-      if (arg.indexOf('ref_') === 0) {
-        const patroId = Number(arg.replace('ref_', ''));
-        if (patroId && patroId !== chatId) await registrarReferencia(patroId, chatId);
+bot.start(async (ctx) => {
+  const chatId = ctx.from.id;
+  await asegurarUsuario(chatId);
+
+  // Soporte de referidos: /start ref_12345
+  const text = ctx.message.text || '';
+  const partes = text.split(' ');
+  if (partes.length > 1) {
+    const arg = partes[1];
+    if (arg.indexOf('ref_') === 0) {
+      const patroId = Number(arg.replace('ref_', ''));
+      if (patroId && patroId !== chatId) {
+        await registrarReferencia(patroId, chatId);
       }
     }
+  }
 
+  try {
     await ctx.reply('Bienvenido. Usa el menú:', menu());
   } catch (e) {
     console.log(e);
-    try { await ctx.reply('Ocurrió un error al iniciar.'); } catch {}
+    await ctx.reply('Ocurrió un error al iniciar.');
+  }
+});
+  
+  }
+
+  try {
+    await ctx.reply('Bienvenido. Usa el menú:', menu());
+  } catch (e) {
+    console.log(e);
+    await ctx.reply('Ocurrió un error al iniciar.');
   }
 });
 
@@ -678,5 +693,6 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
