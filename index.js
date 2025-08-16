@@ -563,10 +563,10 @@ if (patroId) {
       patroId,
       `🎉 Has recibido un bono de referido del 10%\nMonto: ${bono.toFixed(2)} USDT\nPor el depósito de tu referido.`
     );
-  } catch (e) {
-    console.log('No se pudo avisar al patrocinador:', e);
-  }
+} catch (e) {
+  console.log(e);
 }
+});
 
 // Marcar depósito como aprobado
 await supabase
@@ -704,6 +704,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
