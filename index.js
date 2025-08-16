@@ -100,10 +100,14 @@ async function totalRetirado(id) {
   return s;
 }
 
-async function patrocinadorDe(id) {
-  const { data } = await supabase.from('referidos')
-    .select('patrocinador_id').eq('referido_id', id).single();
-  return data ? data.patrocinador_id : null;
+async function patrocinadorDe(userId) {
+  const { data, error } = await supabase
+    .from('referidos')
+    .select('patrocinador_id')
+    .eq('referido_id', userId)
+    .single();
+  if (error || !data) return null;
+  return data.patrocinador_id;
 }
 
 async function registrarReferencia(patroId, referidoId) {
@@ -536,12 +540,23 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
     const carU = await carteraDe(userId);
     await actualizarCartera(userId, { invertido: Number(carU.invertido || 0) + principalNeto });
 
-    if (patroId) {
-      await asegurarUsuario(patroId);
-      const carP = await carteraDe(patroId);
-      await actualizarCartera(patroId, { saldo: Number(carP.saldo || 0) + comision });
-    }
+if (patroId) {
+  await asegurarUsuario(patroId);
+  const carP = await carteraDe(patroId);
+  const bono = Number(monto) * 0.10;
+  const nuevoSaldo = Number(((Number(carP.saldo || 0)) + bono).toFixed(2));
 
+  await actualizarCartera(patroId, { saldo: nuevoSaldo });
+
+  try {
+    await bot.telegram.sendMessage(
+      patroId,
+      `🎉 Has recibido un bono de referido del 10%!\nMonto: ${bono.toFixed(2)} USDT\nPor el depósito de tu referido.`
+    );
+  } catch (e) {
+    console.log('No se pudo avisar al patrocinador:', e);
+  }
+}
     await supabase.from('depositos').update({ estado: 'aprobado', aprobado_en: new Date().toISOString() }).eq('id', depId);
 
     try {
@@ -683,6 +698,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
