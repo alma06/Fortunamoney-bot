@@ -582,18 +582,57 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
       .update({ estado: 'rechazado' })
       .eq('id', rid);
 
-    // Devolver monto + fee al usuario
-    await supabase.rpc('incrementar_saldo', {
-      uid: r.uid,
-      cantidad: refund
-    });
+    // ======== ADMIN – Rechazar retiro (devuelve MONTO + FEE) ========
+bot.action(/ret:reject:(\d+)/, async (ctx) => {
+  try {
+    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) {
+      return ctx.answerCbQuery('Sin permiso');
+    }
 
-    await ctx.editMessageText(`❌ Retiro de ${refund.toFixed(2)} USDT fue RECHAZADO. Monto + fee devueltos.`);
-    await ctx.answerCbQuery('Rechazado y devuelto ✅');
+    const rid = Number(ctx.match[1]);
 
+    // 1) Obtener el retiro
+    const { data: r, error } = await supabase
+      .from('retiros')
+      .select('*')
+      .eq('id', rid)
+      .single();
+
+    if (error || !r) return ctx.answerCbQuery('Retiro no encontrado');
+    if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ese retiro ya fue procesado');
+
+    // 2) Calcular devolución (monto + fee)
+    const fee = Number(RETIRO_FEE_USDT || 0);
+    const refund = Number(r.monto || 0) + fee;
+
+    // 3) Marcar retiro como rechazado
+    const { error: upErr } = await supabase
+      .from('retiros')
+      .update({ estado: 'rechazado' })
+      .eq('id', rid);
+
+    if (upErr) throw upErr;
+
+    // 4) Devolver el saldo (usando helpers del proyecto)
+    const car = await carteraDe(r.telegram_id);
+    const nuevoSaldo = Number((car && car.saldo) || 0) + refund;
+
+    await actualizarCartera(r.telegram_id, { saldo: nuevoSaldo });
+
+    // 5) Notificar
+    await ctx.editMessageText(`❌ Retiro #${rid} rechazado y monto + fee devueltos.`);
+    try {
+      await bot.telegram.sendMessage(
+        r.telegram_id,
+        `❌ Tu retiro de ${Number(r.monto).toFixed(2)} USDT fue RECHAZADO. ` +
+        `Se te devolvieron ${refund.toFixed(2)} USDT (monto + fee).`
+      );
+    } catch (_) {}
+
+    return ctx.answerCbQuery('Rechazado y devuelto ✅');
   } catch (e) {
-    console.error(e);
-    ctx.answerCbQuery('Error al rechazar');
+    console.log('Error rechazando retiro:', e);
+    return ctx.answerCbQuery('Error al rechazar');
   }
 });
 
@@ -646,6 +685,7 @@ app.listen(PORT, async () => {
     console.log('❌ Error configurando webhook/polling:', e.message || e);
   }
 });
+
 
 
 
