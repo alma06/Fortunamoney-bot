@@ -631,7 +631,7 @@ app.listen(PORT, async () => {
 
   try {
     if (HOST_URL) {
-      const url = ${HOST_URL}${webhookPath};
+      const url = `${HOST_URL}${webhookPath}`;
       await bot.telegram.setWebhook(url);
       console.log('Webhook configurado en:', url);
     } else {
@@ -642,4 +642,5 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message || e);
   }
 });
+
 
