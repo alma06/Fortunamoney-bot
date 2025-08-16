@@ -557,18 +557,27 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
         saldo: Number(carP.saldo || 0) + bono,
       });
 
-      // Avisar al patrocinador
-      try {
+      // Buscar patrocinador
+const patroId = await patrocinadorDe(userId);
+
+if (patroId) {
+    await asegurarUsuario(patroId);
+    const carP = await carteraDe(patroId);
+    const bono = monto * 0.10; // 10% de bono
+    await actualizarCartera(patroId, {
+        saldo: Number(carP.saldo || 0) + bono,
+    });
+
+    // Avisar al patrocinador
+    try {
         await bot.telegram.sendMessage(
-          patroId,
-          `🎉 Has recibido un bono de referido del 10%\nMonto: ${bono.toFixed(
-            2
-          )} USDT\nPor el depósito de tu referido.`
+            patroId,
+            `🎉 Has recibido un bono de referido del 10%\nMonto: ${bono.toFixed(2)} USDT\nPor el depósito de tu referido.`
         );
-      } catch (e) {
+    } catch (e) {
         console.log('No se pudo avisar al patrocinador:', e);
-      }
     }
+}
 
     // Marcar depósito como aprobado
     await supabase
@@ -714,6 +723,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
