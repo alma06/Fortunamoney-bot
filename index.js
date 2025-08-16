@@ -623,15 +623,15 @@ app.listen(PORT, async () => {
 
   try {
     if (HOST_URL) {
-      const url = HOST_URL + webhookPath;
+      const url = HOST_URL + '/webhook/8416233224:AAHS20EOgE36GWygmTY9Z1NUmo9qOtthAwA';
       await bot.telegram.setWebhook(url);
       console.log('Webhook configurado en:', url);
     } else {
       await bot.launch();
-      console.log('Bot lanzado en modo polling (HOST_URL no definido).');
-    }
+      console.log
   } catch (e) {
     console.log('Error configurando webhook/polling:', e.message || e);
   }
 });
+
 
