@@ -613,16 +613,24 @@ app.get('/run-pago', async (req, res) => {
   res.send('Pago diario ejecutado. Usuarios pagados: ' + n);
 });
 
-// ===== Webhook de Telegram =====
-const webhookPath = `/webhook/${BOT_TOKEN}`;
+// === Webhook de Telegram (con LOG) ===
+app.get(webhookPath, (_req, res) => res.status(200).send('OK')); // GET de prueba
 
-// Raíz y healthchecks (solo para probar en el navegador)
-app.get('/', (_req, res) => res.status(200).send('FortunaMoney bot OK'));
-app.get('/health', (_req, res) => res.status(200).send('OK'));
+app.post(webhookPath, (req, res) => {
+  try {
+    console.log('>> Update recibido:', JSON.stringify(req.body)); // LOG del update
+  } catch (_) {}
+  return bot.webhookCallback(webhookPath)(req, res);
+});
 
-// Handler REAL del webhook (Telegram envía POST aquí)
-// ⚠️ IMPORTANTE: NO pongas app.get(webhookPath, ...) además de esto.
-app.use(webhookPath, (req, res) => bot.webhookCallback(webhookPath)(req, res));
+// === Handler de prueba temporal ===
+bot.on('message', async (ctx) => {
+  try {
+    await ctx.reply('✅ Recibí tu mensaje: ' + (ctx.message.text || '(no-text)'));
+  } catch (e) {
+    console.log('Echo error:', e.message || e);
+  }
+});
 
 // ===== Arranque (Webhook si hay HOST_URL; si no, polling local) =====
 app.listen(PORT, async () => {
@@ -640,3 +648,4 @@ app.listen(PORT, async () => {
     console.log('❌ Error configurando webhook/polling:', e.message || e);
   }
 });
+
