@@ -582,59 +582,59 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
       .update({ estado: 'rechazado' })
       .eq('id', rid);
 
-    // ======== ADMIN – Rechazar retiro (devuelve MONTO + FEE) ========
-bot.action(/ret:reject:(\d+)/, async (ctx) => {
+    // === Rechazar retiro: devuelve monto + fee ===
+bot.action(/^ret:reject:(\d+)$/, async (ctx) => {
   try {
-    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) {
-      return ctx.answerCbQuery('Sin permiso');
-    }
-
     const rid = Number(ctx.match[1]);
 
-    // 1) Obtener el retiro
+    // Leer el retiro
     const { data: r, error } = await supabase
       .from('retiros')
-      .select('*')
+      .select('id, telegram_id, monto, estado')
       .eq('id', rid)
       .single();
 
-    if (error || !r) return ctx.answerCbQuery('Retiro no encontrado');
-    if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ese retiro ya fue procesado');
+    if (error || !r) {
+      console.log('No se encontró retiro:', error);
+      return ctx.answerCbQuery('No existe el retiro');
+    }
 
-    // 2) Calcular devolución (monto + fee)
-    const fee = Number(RETIRO_FEE_USDT || 0);
-    const refund = Number(r.monto || 0) + fee;
+    if (r.estado !== 'pendiente') {
+      return ctx.answerCbQuery('Este retiro ya fue procesado');
+    }
 
-    // 3) Marcar retiro como rechazado
-    const { error: upErr } = await supabase
+    // Calcular devolución: monto + fee
+    const fee = typeof FEE_RETIRO === 'number' ? FEE_RETIRO : 1;
+    const devolver = Number(r.monto || 0) + Number(fee);
+
+    // Devolver al saldo del usuario
+    const car = await carteraDe(r.telegram_id);
+    const saldoActual = Number(car?.saldo || 0);
+    const nuevoSaldo = saldoActual + devolver;
+    await actualizarCartera(r.telegram_id, { saldo: nuevoSaldo });
+
+    // Marcar retiro como rechazado
+    await supabase
       .from('retiros')
       .update({ estado: 'rechazado' })
       .eq('id', rid);
 
-    if (upErr) throw upErr;
+    // Quitar los botones del mensaje de admin (si aplica)
+    try { await ctx.editMessageReplyMarkup(); } catch (_) {}
 
-    // 4) Devolver el saldo (usando helpers del proyecto)
-    const car = await carteraDe(r.telegram_id);
-    const nuevoSaldo = Number((car && car.saldo) || 0) + refund;
-
-    await actualizarCartera(r.telegram_id, { saldo: nuevoSaldo });
-
-    // 5) Notificar
-    await ctx.editMessageText(`❌ Retiro #${rid} rechazado y monto + fee devueltos.`);
-    try {
-      await bot.telegram.sendMessage(
-        r.telegram_id,
-        `❌ Tu retiro de ${Number(r.monto).toFixed(2)} USDT fue RECHAZADO. ` +
-        `Se te devolvieron ${refund.toFixed(2)} USDT (monto + fee).`
-      );
-    } catch (_) {}
+    // Notificar al usuario
+    await bot.telegram.sendMessage(
+      r.telegram_id,
+      `❌ Tu retiro de ${Number(r.monto).toFixed(2)} USDT fue RECHAZADO.\n` +
+      `Monto + fee devueltos: ${devolver.toFixed(2)} USDT.`
+    );
 
     return ctx.answerCbQuery('Rechazado y devuelto ✅');
   } catch (e) {
     console.log('Error rechazando retiro:', e);
     return ctx.answerCbQuery('Error al rechazar');
   }
-});
+}); // 👈 cierre correcto del handler
 
 // ======== Utilidad: ver el chat_id del chat actual ========
 bot.command('aqui', async (ctx) => {
@@ -685,6 +685,7 @@ app.listen(PORT, async () => {
     console.log('❌ Error configurando webhook/polling:', e.message || e);
   }
 });
+
 
 
 
