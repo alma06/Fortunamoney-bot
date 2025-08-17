@@ -580,7 +580,14 @@ bot.command('verfoto', async (ctx) => {
   try { await ctx.replyWithPhoto(dep.proof_file_id); }
   catch (e) { console.log(e); await ctx.reply('No pude enviar la foto (file_id inválido).'); }
 });
+// ======= ADMIN – Acciones depósito por botones =======
+bot.action(/dep:approve:(\d+)/, async (ctx) => {
+    ...
+});
 
+bot.action(/dep:reject:(\d+)/, async (ctx) => {
+    ...
+});
 // ======== ADMIN - Acciones retiro por botones ========
 bot.action(/ret:approve:(\d+)/, async (ctx) => {
   try {
@@ -793,6 +800,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
