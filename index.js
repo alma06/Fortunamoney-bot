@@ -550,10 +550,8 @@ await bot.telegram.sendMessage(
       if (totalDebitar > disp) {
         await ctx.reply(
           `Saldo insuficiente. Tu disponible es ${disp.toFixed(2)} USDT ` +
-          y se necesita ${totalDebitar.toFixed(2)} USDT (monto + fee).
-        );
-        return;
-      }
+           `y se necesita ${totalDebitar.toFixed(2)} USDT (monto + fee).`
+);
 
       // (Opcional) aquí podrías debitar saldo ya, si tu lógica lo exige.
       // await actualizarCartera(chatId, { saldo: disp - totalDebitar });
@@ -1032,6 +1030,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
