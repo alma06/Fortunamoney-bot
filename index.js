@@ -611,7 +611,7 @@ bot.command('retiros', async (ctx) => {
   await ctx.reply(msg);
 });
 
-// ======== ADMIN – Acciones retiro por botones ========
+// ======== ADMIN - Acciones retiro por botones ========
 bot.action(/ret:approve:(\d+)/, async (ctx) => {
   try {
     if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
@@ -621,33 +621,37 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
     if (!r) return ctx.answerCbQuery('No encontrado');
     if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
 
-    await supabase.from('retiros').update({ estado: 'aprobado', aprobado_en: new Date().toISOString() }).eq('id', rid);
+    await supabase
+      .from('retiros')
+      .update({ estado: 'aprobado', aprobado_en: new Date().toISOString() })
+      .eq('id', rid);
 
-    try {
-  // Aviso al usuario
-  await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro de ' + Number(r.monto).toFixed(2) + ' USDT fue APROBADO');
-  await ctx.editMessageReplyMarkup();
-  await ctx.reply('Retiro #' + rid + ' aprobado.');
+    // Aviso al usuario
+    await bot.telegram.sendMessage(
+      r.telegram_id,
+      `Tu retiro de ${Number(r.monto).toFixed(2)} USDT fue APROBADO`
+    );
+    await ctx.editMessageReplyMarkup();
+    await ctx.reply(`Retiro #${rid} aprobado.`);
 
-// Aviso al canal de pagos
-const channelId = Number(process.env.PAYMENT_CHANNEL_ID);
-if (channelId) {
-  const txt =
-    '🆕 Nuevo RETIRO aprobado\n\n' +
-    `👤 Usuario: ${r.telegram_id}\n` +
-    `💰 Monto: ${Number(r.monto).toFixed(2)} USDT\n` +
-    '✅ Estado: Aprobado';
+    // Aviso al canal de pagos (si está configurado)
+    const channelId = Number(process.env.PAYMENT_CHANNEL_ID);
+    if (channelId) {
+      const txt =
+        '🆕 Nuevo RETIRO aprobado\n' +
+        `👤 Usuario: ${r.telegram_id}\n` +
+        `💰 Monto: ${Number(r.monto).toFixed(2)} USDT\n` +
+        '✅ Estado: Aprobado';
 
-  try {
-    await bot.telegram.sendMessage(channelId, txt);
-  } catch (err) {
-    console.log('No se pudo mandar al canal de pagos:', err?.message || err);
+      try {
+        await bot.telegram.sendMessage(channelId, txt);
+      } catch (err) {
+        console.log('No se pudo mandar al canal de pagos:', err?.message || err);
+      }
+    }
+  } catch (e) {
+    console.log(e);
   }
-}
-
-} catch (e) {
-  console.log(e);
-}
 });
 
 bot.action(/ret:reject:(\d+)/, async (ctx) => {
@@ -660,15 +664,22 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
     if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
 
     const car = await carteraDe(r.telegram_id);
-    // NOTA: por ahora devuelve solo el monto (el fee se ajustará después)
-    await actualizarCartera(r.telegram_id, { saldo: Number(car.saldo || 0) + Number(r.monto || 0) });
+    await actualizarCartera(r.telegram_id, {
+      saldo: Number(car.saldo || 0) + Number(r.monto || 0),
+    });
 
     await supabase.from('retiros').update({ estado: 'rechazado' }).eq('id', rid);
 
-    try { await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro fue RECHAZADO. Monto devuelto.'); } catch {}
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply('Retiro #' + rid + ' rechazado y monto devuelto.');
-  } catch (e) { console.log(e); }
+    try {
+      await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro fue RECHAZADO. Monto devuelto.');
+      await ctx.editMessageReplyMarkup();
+      await ctx.reply(`Retiro #${rid} rechazado y monto devuelto.`);
+    } catch (e2) {
+      console.log(e2);
+    }
+  } catch (e) {
+    console.log(e);
+  }
 });
 
 // ======== Utilidad: ver el chat_id del chat actual ========
@@ -720,6 +731,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
