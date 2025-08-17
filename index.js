@@ -510,33 +510,35 @@ bot.on('text', async (ctx) => {
         `• Cuando el admin confirme la recepción, tu inversión será acreditada.`
       );
 
-      // Aviso al grupo admin
-      try {
-        await bot.telegram.sendMessage(
-          ADMIN_GROUP_ID,
-          `📩 Comprobante de DEPÓSITO\n` +
-          `ID: #${depId}\n` +
-          `User: ${chatId}\n` +
-          `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
-          (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : '') +
-          `Usa los botones para validar.`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
-                [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}`  }]
-              ]
-            }
-          }
-        );
-      } catch (e2) {
-        console.log('No pude avisar al admin/grupo (depósito):', e2.message || e2);
-      }
+   // ===== Aviso al grupo admin =====
+const adminBody =
+  `📩 Comprobante de DEPÓSITO\n` +
+  `ID: #${depId}\n` +
+  `User: ${chatId}\n` +
+  `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
+  (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : ``) +
+  `Usa los botones para validar.`;
 
-      // limpiar estado para no comerse el siguiente mensaje
-      estado[chatId] = undefined;
-      return;
+try {
+  await bot.telegram.sendMessage(
+    ADMIN_GROUP_ID,
+    adminBody,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
+          [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}`  }]
+        ]
+      }
     }
+  );
+} catch (e2) {
+  console.log('No pude avisar al admin/grupo (depósito):', e2.message || e2);
+}
+
+// Limpiar estado para no comerse el siguiente mensaje
+estado[chatId] = undefined;
+return;
 
     // =============== RETIRAR (si lo usas en este handler) ===============
     if (st === 'RET') {
@@ -1025,6 +1027,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
