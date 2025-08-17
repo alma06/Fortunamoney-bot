@@ -210,31 +210,43 @@ const instrucciones = (moneda === 'USDT')
   ? `Método: USDT (BEP20)\n- Wallet: ${WALLET_USDT}`
   : `Método: CUP (Tarjeta)\n- Número de tarjeta: ${WALLET_CUP}`;
 
+// Respuesta al usuario
 await ctx.reply(
   `✅ Depósito creado (pendiente).\n\n` +
-  `ID: #${depId}\n` +
+  `ID: ${depId}\n` +
   `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
-  instrucciones + `\n\n` +
-  `Envía el comprobante para validarlo.`
+  (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : '') +
+  `${instrucciones}\n\n` +
+  `• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP).\n` +
+  `• Cuando el admin confirme la recepción, tu inversión será acreditada.`,
+  menu()
 );
 
-// 👇👇 ESTE BLOQUE AGREGA EL AVISO AL GRUPO DE ADMINS
-await bot.telegram.sendMessage(
-  ADMIN_GROUP_ID,
-  `📸 Comprobante de DEPÓSITO\n` +
-  `ID: #${depId}\n` +
-  `User: ${chatId}\n` +
-  `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
-  `Usa los botones para validar.`,
-  {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '✅ Aprobar', callback_data: `dep:approve:${depId}` }],
-        [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}` }]
-      ]
+// Aviso al grupo admin (con botones)
+try {
+  const adminBody =
+    `📥 Comprobante de DEPÓSITO\n` +
+    `ID: #${depId}\n` +
+    `User: ${chatId}\n` +
+    `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
+    (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : ``) +
+    `Usa los botones para validar.`;
+
+  await bot.telegram.sendMessage(
+    ADMIN_GROUP_ID,
+    adminBody,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
+          [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}`  }]
+        ]
+      }
     }
-  }
-);
+  );
+} catch (e2) {
+  console.log('No pude avisar al admin/grupo (depósito):', e2?.message || e2);
+}
       } catch (e2) {
         console.log('No pude avisar al admin/grupo (depósito):', e2?.message || e2);
       }
@@ -525,6 +537,7 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
