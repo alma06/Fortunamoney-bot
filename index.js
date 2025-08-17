@@ -778,76 +778,73 @@ bot.action(/dep:reject:(\d+)/, async (ctx) => {
     try { await ctx.answerCbQuery('Error rechazando'); } catch {}
   }
 });
-// ======== ADMIN - Acciones retiro por botones ========
+// ======== ADMIN – Aprobar retiro (descuenta en USDT pero paga en CUP) ========
 bot.action(/ret:approve:(\d+)/, async (ctx) => {
   try {
     if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
     const rid = Number(ctx.match[1]);
 
-    const { data: r } = await supabase.from('retiros').select('*').eq('id', rid).single();
+    const { data: r } = await supabase
+      .from('retiros')
+      .select('*')
+      .eq('id', rid)
+      .single();
     if (!r) return ctx.answerCbQuery('No encontrado');
     if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
 
+    // Tasa fija (CUP por USDT). Toma del .env o usa 400 por defecto.
+    const rate = Number(process.env.CUP_USDT_RATE || 400);
+
+    // Monto que se pagará en CUP (redondeo hacia abajo a entero)
+    const montoUSDT = Number(r.monto);
+    const pagarCUP = Math.floor(montoUSDT * rate);
+
+    // Marca como aprobado y registra cómo se pagó
     await supabase
       .from('retiros')
-      .update({ estado: 'aprobado', aprobado_en: new Date().toISOString() })
+      .update({
+        estado: 'aprobado',
+        aprobado_en: new Date().toISOString(),
+        moneda_pago: 'CUP',
+        tasa_usdt: rate,
+        monto_pago_cup: pagarCUP
+      })
       .eq('id', rid);
 
     // Aviso al usuario
-    await bot.telegram.sendMessage(
-      r.telegram_id,
-      `Tu retiro de ${Number(r.monto).toFixed(2)} USDT fue APROBADO`
-    );
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply(`Retiro #${rid} aprobado.`);
-
-    // Aviso al canal de pagos (si está configurado)
-    const channelId = Number(process.env.PAYMENT_CHANNEL_ID);
-    if (channelId) {
-      const txt =
-        '🆕 Nuevo RETIRO aprobado\n' +
-        `👤 Usuario: ${r.telegram_id}\n` +
-        `💰 Monto: ${Number(r.monto).toFixed(2)} USDT\n` +
-        '✅ Estado: Aprobado';
-
-      try {
-        await bot.telegram.sendMessage(channelId, txt);
-      } catch (err) {
-        console.log('No se pudo mandar al canal de pagos:', err?.message || err);
-      }
-    }
-  } catch (e) {
-    console.log(e);
-  }
-});
-
-bot.action(/ret:reject:(\d+)/, async (ctx) => {
-  try {
-    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
-    const rid = Number(ctx.match[1]);
-
-    const { data: r } = await supabase.from('retiros').select('*').eq('id', rid).single();
-    if (!r) return ctx.answerCbQuery('No encontrado');
-    if (r.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
-
-    const car = await carteraDe(r.telegram_id);
-    // Devolver monto al saldo (el fee lo ajustaremos después si hace falta)
-    await actualizarCartera(r.telegram_id, {
-      saldo: Number(car.saldo || 0) + Number(r.monto || 0),
-    });
-
-    await supabase.from('retiros').update({ estado: 'rechazado' }).eq('id', rid);
-
     try {
-      await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro fue RECHAZADO. Monto devuelto.');
-      await ctx.editMessageReplyMarkup();
-      await ctx.reply(`Retiro #${rid} rechazado y monto devuelto.`);
-    } catch (e2) {
-      console.log(e2);
+      await bot.telegram.sendMessage(
+        r.telegram_id,
+        `✅ Tu retiro de ${montoUSDT.toFixed(2)} USDT fue APROBADO.\n` +
+        `Se pagará en CUP: ${pagarCUP} CUP @ ${rate} CUP/USDT.`
+      );
+    } catch {}
+
+    // Quita los botones del mensaje de admin
+    await ctx.editMessageReplyMarkup();
+
+    // Aviso en el grupo admin
+    await ctx.reply(
+      `✅ Retiro #${rid} aprobado.\n` +
+      `Usuario: ${r.telegram_id}\n` +
+      `Descontado: ${montoUSDT.toFixed(2)} USDT (del saldo)\n` +
+      `A pagar: ${pagarCUP} CUP @ ${rate} CUP/USDT`
+    );
+
+    // (Opcional) Aviso al canal de pagos si tienes PAYMENT_CHANNEL_ID configurado
+    if (process.env.PAYMENT_CHANNEL_ID) {
+      try {
+        await bot.telegram.sendMessage(
+          process.env.PAYMENT_CHANNEL_ID,
+          `💸 Pago de retiro aprobado\n` +
+          `Usuario: ${r.telegram_id}\n` +
+          `Equivalente: ${montoUSDT.toFixed(2)} USDT\n` +
+          `Pagado: ${pagarCUP} CUP @ ${rate} CUP/USDT`
+        );
+      } catch (e) { console.log('No pude avisar al canal de pagos:', e?.message || e); }
     }
-  } catch (e) {
-    console.log(e);
-  }
+
+  } catch (e) { console.log(e); }
 });
 
 // ======== ADMIN – Retiros (lista) ========
@@ -990,6 +987,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
