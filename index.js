@@ -494,37 +494,36 @@ if (st === 'INV_CUP' && monto < 500) {
 
       const depId = ins.data.id;
 
-      // Instrucciones dinámicas
-      let instrucciones = '';
-      if (moneda === 'USDT') {
-        instrucciones =
-          • Método: USDT (BEP20)\n +
-          • Wallet: \${process.env.WALLET_USDT || '—'}\``;
-      } else {
-        instrucciones =
-          • Método: CUP (Tarjeta)\n +
-          • Número de tarjeta: \${process.env.WALLET_CUP || '—'}\``;
-      }
+// ===== Instrucciones dinámicas (SIN + dentro de backticks) =====
+let instrucciones = '';
+if (moneda === 'USDT') {
+  instrucciones = `Método: USDT (BEP20)
+Wallet: ${process.env.WALLET_USDT || '--'}`;
+} else {
+  instrucciones = `Método: CUP (Tarjeta)
+Número de tarjeta: ${process.env.WALLET_CUP || '--'}`;
+}
 
-      // Respuesta al usuario
-      await ctx.reply(
-  `✅ Depósito creado (pendiente).\n\n` +
-  `ID: ${depId}\n` +
-  `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
-  (moneda === 'CUP'
-    ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n`
-    : ``) +
-  `\n${instrucciones}\n\n` +
-  `👉 Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\nCuando el admin confirme la recepción, tu inversión será acreditada.`
+// ===== Respuesta al usuario =====
+await ctx.reply(
+  `✅ Depósito creado (pendiente).
+
+ID: ${depId}
+Monto: ${monto_origen.toFixed(2)} ${moneda}
+${moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : ''}
+${instrucciones}
+
+• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.
+• Cuando el admin confirme la recepción, tu inversión será acreditada.`
 );
 
-      const adminBody =
-  `📩 Comprobante de DEPÓSITO\n` +
-  `ID: #${depId}\n` +
-  `User: ${chatId}\n` +
-  `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
-  (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : ``) +
-  `Usa los botones para validar.`;
+// ===== Mensaje al grupo admin con botones =====
+const adminBody = 
+  `📩 Comprobante de DEPÓSITO
+ID: #${depId}
+User: ${chatId}
+Monto: ${monto_origen.toFixed(2)} ${moneda}
+${moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : ''}Usa los botones para validar.`;
 
 await bot.telegram.sendMessage(
   ADMIN_GROUP_ID,
@@ -1033,6 +1032,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
