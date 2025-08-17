@@ -221,14 +221,14 @@ bot.command('testcanal', async (ctx) => {
 });
 
 bot.hears('Invertir', async (ctx) => {
-    try {
-        const chatId = ctx.from.id;
-        await asegurarUsuario(chatId);
-        estado[chatId] = 'INV';
-        await ctx.reply(
-            'Escribe el monto a invertir (mínimo ' + MIN_INVERSION + ' USDT). Solo número, ejemplo: 50.00'
-        );
-    } catch (e) { console.log(e); }
+  try {
+    const chatId = ctx.from.id;
+    await asegurarUsuario(chatId);
+    estado[chatId] = 'INV_USDT';   // <<-- antes tenías 'INV'
+    await ctx.reply(
+      'Escribe el monto a invertir (mínimo ' + MIN_INVERSION + ' USDT). Solo número, ejemplo: 50.00'
+    );
+  } catch (e) { console.log(e); }
 });
 
 bot.hears('Retirar', async (ctx) => {
@@ -780,6 +780,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
