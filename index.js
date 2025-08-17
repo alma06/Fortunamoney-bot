@@ -600,13 +600,15 @@ try {
 
   await bot.telegram.sendMessage(
     ADMIN_GROUP_ID,
-    `🆕 Nuevo RETIRO pendiente\n` +
-    `ID: #${retId}\n` +
-    `Usuario: ${chatId}\n` +
-    `Monto: $${monto.toFixed(2)} USDT\n` +
-    `Fee: $${fee.toFixed(2)} USDT\n` +
-    (cupEq ? `CUP eq. (tasa ${tasa}): ${cupEq.toFixed(0)} CUP\n` : ``) +
-    `Preferencia: ${pref || '—'}`,
+    (
+      `🆕 Nuevo RETIRO pendiente\n` +
+      `ID: #${retId}\n` +
+      `Usuario: ${chatId}\n` +
+      `Monto: $${monto.toFixed(2)} USDT\n` +
+      `Fee: $${fee.toFixed(2)} USDT\n` +
+      (cupEq ? `CUP eq. (tasa ${tasa}): ${cupEq.toFixed(0)} CUP\n` : ``) +
+      `Preferencia: ${pref || '—'}`
+    ),
     {
       reply_markup: {
         inline_keyboard: [
@@ -1030,6 +1032,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
