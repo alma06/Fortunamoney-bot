@@ -461,15 +461,13 @@ bot.on('text', async (ctx) => {
                 console.log('No pude avisar al admin/grupo:', e3);
             }
         }
-
-        return;
-    } catch (e) {
-        console.log(e);
-        try { 
-            await ctx.reply('Ocurrió un error.'); 
-        } catch {}
-    }
-});
+// Si llega texto que no corresponde a un estado, no hacer nada especial
+    return;
+  } catch (e) {
+    console.log(e);
+    try { await ctx.reply('Ocurrió un error.'); } catch {}
+  }
+}); // <-- FIN del bot.on('text')
 
 // Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
 bot.on('photo', async (ctx) => {
@@ -776,6 +774,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
