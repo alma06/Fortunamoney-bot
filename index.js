@@ -379,7 +379,7 @@ bot.action('inv:usdt', async (ctx) => {
     const chatId = ctx.from.id;
     estado[chatId] = 'INV_USDT';
     await ctx.answerCbQuery();
-    await ctx.reply(`Escribe el monto a invertir (mínimo ${MIN_INVERSION} USDT). Solo número, ejemplo: 50.00`);
+    await ctx.reply(`Escribe el monto a invertir en USDT (mínimo ${MIN_INVERSION}). Solo número, ej: 50.00`);
   } catch (e) { console.log(e); }
 });
 
@@ -389,7 +389,7 @@ bot.action('inv:cup', async (ctx) => {
     const chatId = ctx.from.id;
     estado[chatId] = 'INV_CUP';
     await ctx.answerCbQuery();
-    await ctx.reply('Escribe el monto a invertir en CUP (mínimo 500 CUP). Solo número, ejemplo: 20000');
+    await ctx.reply('Escribe el monto a invertir en CUP (mínimo 500). Solo número, ej: 20000');
   } catch (e) { console.log(e); }
 });
 
@@ -437,7 +437,10 @@ bot.on('text', async (ctx) => {
     const chatId = ctx.from.id;
     const txtRaw = (ctx.message.text || '').trim();
     if (txtRaw.startsWith('/')) return; // no comerse comandos
-
+    
+console.log('TXT=', txtRaw, 'ST=', estado[ctx.from.id]);
+await ctx.reply(`(debug) estado actual: ${estado[ctx.from.id] || 'undefined'}`);
+    
     const st = estado[chatId]; // 'INV_USDT' | 'INV_CUP' | 'RET' | undefined
     if (!['INV_USDT', 'INV_CUP', 'RET'].includes(st)) return;
 
@@ -1013,6 +1016,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
