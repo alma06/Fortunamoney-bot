@@ -327,20 +327,12 @@ if (st === 'RET') {
         }
       }
     );
-  } catch (e3) {
-    console.log('No pude avisar al admin/grupo (retiro):', e3?.message || e3);
-  }
 
-  // <- aquí termina el bloque de RET
-  estado[chatId] = undefined;
-  return;
-}
-
-// Aquí sigue el catch del handler completo:
 } catch (e) {
   console.log('Error en handler de texto:', e);
   try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
 }
+}); // <-- ESTA LÍNEA ES LA QUE FALTABA
 // ======== Foto: guarda comprobante en depósito pendiente más reciente ========
 bot.on('photo', async (ctx) => {
   try {
@@ -540,6 +532,7 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
