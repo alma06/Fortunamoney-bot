@@ -335,7 +335,7 @@ if (st === 'RET') {
     } catch {}
   }
 
-/* a partir de aquí empieza el siguiente handler */
+/* === Handler para recibir comprobante en foto === */
 bot.on('photo', async (ctx) => {
   try {
     const uid = ctx.from.id;
@@ -344,7 +344,7 @@ bot.on('photo', async (ctx) => {
     const best = photos[photos.length - 1];
     const fileId = best.file_id;
 
-    // último depósito pendiente del usuario
+    // Último depósito pendiente del usuario
     const { data: dep } = await supabase.from('depositos')
       .select('id, estado')
       .eq('telegram_id', uid).eq('estado', 'pendiente')
@@ -355,25 +355,34 @@ bot.on('photo', async (ctx) => {
       return;
     }
 
+    // Guardar comprobante en BD
     await supabase.from('depositos').update({ proof_file_id: fileId }).eq('id', dep.id);
     await ctx.reply(`Comprobante guardado para el depósito #${dep.id}.`);
 
-    // Enviar la foto al grupo con botones
+    // Enviar la foto al grupo admin con botones
     try {
       const caption =
-        '📸 Comprobante de DEPÓSITO\n' +
-        `ID: #${dep.id}\n` +
-        `User: ${uid}\n` +
-        'Usa los botones para validar.';
-      await ctx.telegram.sendPhoto(ADMIN_GROUP_ID, fileId, {
+        "🧾 Comprobante de DEPÓSITO\n" +
+        `ID: ${dep.id}\n` +
+        `Usuario: ${uid}\n`;
+
+      await bot.telegram.sendPhoto(ADMIN_GROUP_ID, fileId, {
         caption,
         reply_markup: {
           inline_keyboard: [
-            [{ text: '✅ Aprobar',  callback_data: `dep:approve:${dep.id}` }],
-            [{ text: '❌ Rechazar', callback_data: `dep:reject:${dep.id}`  }]
+            [{ text: "✅ Aprobar depósito", callback_data: `dep:approve:${dep.id}` }],
+            [{ text: "❌ Rechazar depósito", callback_data: `dep:reject:${dep.id}` }]
           ]
         }
       });
+    } catch (err) {
+      console.error("Error enviando comprobante al grupo:", err);
+    }
+
+  } catch (e) {
+    console.error("Error en handler de foto:", e);
+  }
+}); // <--- cierre completo
     } catch (e2) {
       console.log('No pude mandar la foto al admin/grupo:', e2?.message || e2);
     }
@@ -535,6 +544,7 @@ process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
 }   // <--- ESTA ES LA QUE FALTABA
+
 
 
 
