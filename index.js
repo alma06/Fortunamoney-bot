@@ -184,28 +184,40 @@ bot.command('pagarhoy', async (ctx) => {
 });
 
 bot.start(async (ctx) => {
-    try {
-        const chatId = ctx.from.id;
-        await asegurarUsuario(chatId);
+  try {
+    const chatId = ctx.from.id;
+    await asegurarUsuario(chatId);
 
-        // Soporte de referidos: /start ref_12345
-        const text = ctx.message.text || '';
-        const partes = text.split(' ');
-        if (partes.length > 1) {
-            const arg = partes[1];
-            if (arg.indexOf('ref_') === 0) {
-                const patroId = Number(arg.replace('ref_', ''));
-                if (patroId && patroId !== chatId) {
-                    await registrarReferencia(patroId, chatId);
-                }
-            }
+    const text = ctx.message.text || '';
+    const partes = text.split(' ');
+    if (partes.length > 1) {
+      const arg = partes[1];
+      if (arg.indexOf('ref_') === 0) {
+        const patroId = Number(arg.replace('ref_', ''));
+        if (patroId && patroId !== chatId) {
+          await registrarReferencia(patroId, chatId);
         }
-
-        await ctx.reply('Bienvenido. Usa el menú:', menu());
-    } catch (e) {
-        console.log(e);
-        await ctx.reply('Ocurrió un error al iniciar.');
+      }
     }
+
+    await ctx.reply('Bienvenido. Usa el menú:', menu());
+  } catch (e) {
+    console.log(e);
+    await ctx.reply('Ocurrió un error al iniciar.');
+  }
+});
+
+// 👇 Agrega el comando de prueba aquí
+bot.command('testcanal', async (ctx) => {
+  const id = process.env.PAYMENT_CHANNEL_ID;
+  try {
+    const chat = await bot.telegram.getChat(id);
+    await ctx.reply(`Canal detectado: ${chat.title} (id=${chat.id}). Intentando postear...`);
+    await bot.telegram.sendMessage(id, '✅ Prueba de posteo desde el bot (testcanal).');
+    await ctx.reply('Listo: publicado en el canal.');
+  } catch (e) {
+    await ctx.reply('❌ Falló: ' + (e?.description || e?.message || String(e)));
+  }
 });
 
 bot.hears('Invertir', async (ctx) => {
@@ -731,6 +743,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
