@@ -247,13 +247,9 @@ try {
 } catch (e2) {
   console.log('No pude avisar al admin/grupo (depósito):', e2?.message || e2);
 }
-      } catch (e2) {
-        console.log('No pude avisar al admin/grupo (depósito):', e2?.message || e2);
-      }
 
-      estado[chatId] = undefined;
-      return;
-    }
+estado[chatId] = undefined;
+return;
 
     // ===== RETIRAR =====
     if (st === 'RET') {
@@ -537,6 +533,7 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
