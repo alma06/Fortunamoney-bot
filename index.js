@@ -634,21 +634,21 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
     await ctx.editMessageReplyMarkup();
     await ctx.reply(`Retiro #${rid} aprobado.`);
 
-    // Aviso al canal de pagos (si está configurado)
-    const channelId = Number(process.env.PAYMENT_CHANNEL_ID);
-    if (channelId) {
-      const txt =
-        '🆕 Nuevo RETIRO aprobado\n' +
-        `👤 Usuario: ${r.telegram_id}\n` +
-        `💰 Monto: ${Number(r.monto).toFixed(2)} USDT\n` +
-        '✅ Estado: Aprobado';
+    // --- Aviso al canal de pagos ---
+const channelId = process.env.PAYMENT_CHANNEL_ID; // <-- SIN Number()
+if (channelId) {
+  const txt =
+    '📢 Nuevo RETIRO aprobado\n\n' +
+    `👤 Usuario: ${r.telegram_id}\n` +
+    `💸 Monto: ${Number(r.monto).toFixed(2)} USDT\n` +
+    '✅ Estado: Aprobado';
 
-      try {
-        await bot.telegram.sendMessage(channelId, txt);
-      } catch (err) {
-        console.log('No se pudo mandar al canal de pagos:', err?.message || err);
-      }
-    }
+  try {
+    await bot.telegram.sendMessage(channelId, txt);
+  } catch (err) {
+    console.log('No se pudo mandar al canal de pagos:', err?.message || err);
+  }
+}
   } catch (e) {
     console.log(e);
   }
@@ -731,6 +731,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
