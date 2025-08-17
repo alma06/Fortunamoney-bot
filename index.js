@@ -408,70 +408,7 @@ bot.on('text', async (ctx) => {
       return;
     }
 
-    // ========== RETIRAR (tu flujo existente) ==========
-    if (estado[chatId] === 'RET') {
-      const monto = Number(txt.replace(',', '.'));
-      if (isNaN(monto) || monto <= 0) {
-        await ctx.reply('Monto inválido. Intenta de nuevo.');
-        return;
-      }
 
-      await asegurarUsuario(chatId);
-      const car = await carteraDe(chatId);
-      const disp = Number(car.saldo || 0);
-      const totalDebitar = monto + RETIRO_FEE_USDT;
-
-      if (totalDebitar > disp) {
-        await ctx.reply(
-          'Saldo insuficiente. Tu disponible es ' + disp.toFixed(2) + ' USDT ' +
-          'y se necesita ' + totalDebitar.toFixed(2) + ' USDT (monto + fee).'
-        );
-        return;
-      }
-
-      // Debitamos el saldo y creamos el retiro
-      await actualizarCartera(chatId, { saldo: disp - totalDebitar });
-
-      const insR = await supabase.from('retiros').insert([{
-        telegram_id: chatId,
-        monto: monto,
-        estado: 'pendiente'
-      }]).select('id').single();
-
-      await ctx.reply(
-        'Retiro solicitado por ' + monto.toFixed(2) + ' USDT.\n' +
-        'Fee descontado: ' + RETIRO_FEE_USDT.toFixed(2) + ' USDT.\n' +
-        'Estado: pendiente.'
-      );
-
-      estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
-
-      // Aviso al admin/grupo (opcional; si ya lo tienes en otro lado, no dupliques)
-      if (!insR?.data) return;
-      const rid = insR.data.id;
-      const avisoR =
-        '🆕 Nuevo RETIRO pendiente\n' +
-        `ID: ${rid}\n` +
-        `User: ${chatId}\n` +
-        `Monto: ${monto.toFixed(2)} USDT`;
-      try {
-        await avisarAdmin(avisoR, { reply_markup: kbRet(rid).reply_markup });
-      } catch (e3) {
-        console.log('No pude avisar al admin/grupo:', e3);
-      }
-      return;
-    }
-
-    // Si llega texto que no corresponde a un estado, no hacer nada
-    return;
-  } catch (e) {
-    console.log(e);
-    try { await ctx.reply('Ocurrió un error.'); } catch {}
-  }
-});
-
-      
     // Retirar
     if (estado[chatId] === 'RET') {
       const monto = Number(txt.replace(',', '.'));
@@ -826,6 +763,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
