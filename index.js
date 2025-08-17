@@ -329,10 +329,11 @@ if (st === 'RET') {
     );
 // ... catch del handler de texto ...
 } catch (e) {
-  console.log('Error en handler de texto:', e);
-  try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
-}
-}); // <-- CIERRE ÚNICO del bot.on('text', ...)
+    console.log('Error en handler de texto:', e);
+    try { 
+      await ctx.reply('Ocurrió un error procesando tu mensaje.'); 
+    } catch {}
+  }
 
 /* a partir de aquí empieza el siguiente handler */
 bot.on('photo', async (ctx) => {
@@ -533,6 +534,7 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
