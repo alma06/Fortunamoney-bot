@@ -515,10 +515,11 @@ if (st === 'INV_CUP' && monto < 500) {
     ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` 
     : ``) +
   `${
-    moneda === 'USDT'
-      ? `Método: USDT (BEP20)\nWallet: \`${process.env.WALLET_USDT}\`\n`
-      : `Método: CUP (Tarjeta)\nNúmero de tarjeta: \`${process.env.WALLET_CUP}\`\n`
-  }\n` +
+    ${
+  moneda === 'USDT'
+    ? `Método: USDT (BEP20)\nWallet: \`${process.env.WALLET_USDT}\`\n`
+    : `Método: CUP (Tarjeta)\nNúmero de tarjeta: \`${process.env.WALLET_CUP}\`\n`
+}
   `• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n` +
   `• Cuando el admin confirme la recepción, tu inversión será acreditada.`
 );
@@ -1038,6 +1039,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
