@@ -431,7 +431,7 @@ bot.action('curr:CUP', async (ctx) => {
   } catch (e) { console.log(e); }
 });
 
-// // Handler de texto: captura MONTOS después de elegir método o al retirar
+// Handler de texto: captura MONTOS después de elegir método o al retirar
 bot.on('text', async (ctx) => {
   try {
     const chatId = ctx.from.id;
@@ -1178,6 +1178,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
