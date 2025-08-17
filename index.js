@@ -529,15 +529,15 @@ bot.on('text', async (ctx) => {
       return;
     }
 
-    // Mínimos por método
-    if (st === 'INV_USDT' && monto < MIN_INVERSION) {
-      await ctx.reply(El mínimo de inversión es ${MIN_INVERSION} USDT.);
-      return;
-    }
-    if (st === 'INV_CUP' && monto < 500) {
-      await ctx.reply('El mínimo de inversión es 500 CUP.');
-      return;
-    }
+  // Mínimos por método
+if (st === 'INV_USDT' && monto < MIN_INVERSION) {
+  await ctx.reply(El mínimo de inversión es ${MIN_INVERSION} USDT.);
+  return;
+}
+if (st === 'INV_CUP' && monto < 500) {
+  await ctx.reply('El mínimo de inversión es 500 CUP.');
+  return;
+}
 
     // Asegurar usuario
     await asegurarUsuario(chatId);
@@ -1013,6 +1013,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
