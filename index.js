@@ -627,11 +627,13 @@ try {
       return;
     }
 
-  } catch (e) {
+} catch (e) {
     console.log('Error en handler de texto:', e);
-    try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
+    try {
+      await ctx.reply('Ocurrió un error procesando tu mensaje.');
+    } catch (_) {}
   }
-});
+}); // ← este cierra el bot.on('text', ...)
 // Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
 bot.on('photo', async (ctx) => {
   try {
@@ -1032,6 +1034,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
