@@ -87,21 +87,27 @@ bot.start(async (ctx) => {
 });
 
 bot.hears('Saldo', async (ctx) => {
-  const chatId = ctx.from.id;
-  await asegurarUsuario(chatId);
-  const car = await carteraDe(chatId);
-  const total = numero(car.saldo) + numero(car.principal);
-  const bruto = numero(car.bruto);
-  const progreso = bruto ? (total / bruto * 100) : 0;
-  await ctx.reply(
-    'Tu saldo (en USDT):\n\n' +
-    `Principal (invertido):  ${numero(car.principal).toFixed(2)}\n` +
-    `Disponible:             ${numero(car.saldo).toFixed(2)}\n` +
-    `Total:                  ${total.toFixed(2)}\n\n` +
-    `Bruto (base para 500%): ${bruto.toFixed(2)}\n` +
-    `Progreso hacia 500%:    ${progreso.toFixed(2)}%`,
-    menu()
-  );
+  try {
+    const chatId = ctx.from.id;
+    await asegurarUsuario(chatId);
+
+    const { saldo = 0, principal = 0, bruto = 0 } = await carteraDe(chatId);
+    const total = Number(saldo) + Number(principal);
+    const progreso = bruto ? (total / bruto * 100) : 0;
+
+    await ctx.reply(
+      'Tu saldo (en USDT):\n\n' +
+      `Principal (invertido):  ${Number(principal).toFixed(2)}\n` +
+      `Disponible:             ${Number(saldo).toFixed(2)}\n` +
+      `Total:                  ${total.toFixed(2)}\n\n` +
+      `Bruto (base para 500%): ${Number(bruto).toFixed(2)}\n` +
+      `Progreso hacia 500%:    ${progreso.toFixed(2)}%`,
+      menu()
+    );
+  } catch (e) {
+    console.log('ERROR Saldo:', e);
+    try { await ctx.reply('Error obteniendo tu saldo. Intenta de nuevo.'); } catch {}
+  }
 });
 
 // ======== Invertir ========
@@ -525,5 +531,6 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
