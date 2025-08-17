@@ -435,6 +435,58 @@ bot.action('curr:CUP', async (ctx) => {
 bot.on('text', async (ctx) => {
   try {
     const chatId = ctx.from.id;
+    const 
+
+      // Aviso admin (opcional: mostrar equivalente en CUP si prefirió CUP)
+      try {
+        let pref = null;
+        try {
+          const { data: u } = await supabase
+            .from('usuarios')
+            .select('moneda_preferida')
+            .eq('telegram_id', chatId)
+            .single();
+          pref = u?.moneda_preferida || null;
+        } catch {}
+
+        const tasa = Number(process.env.CUP_USDT_RATE || 400);
+        const cupEq = (pref === 'CUP') ? (monto * tasa) : null;
+
+        const body =
+          `🟢 Nuevo RETIRO pendiente\n` +
+          `ID: #${retId}\n` +
+          `Usuario: ${chatId}\n` +
+          `Monto: ${monto.toFixed(2)} USDT\n` +
+          `Fee: ${fee.toFixed(2)} USDT\n` +
+          (cupEq ? `Equivalente: ${cupEq.toFixed(0)} CUP\n` : '') +
+          `Preferencia: ${pref || '--'}`;
+
+        await bot.telegram.sendMessage(ADMIN_GROUP_ID, body, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Aprobar',  callback_data: `ret:approve:${retId}` }],
+              [{ text: '❌ Rechazar', callback_data: `ret:reject:${retId}`  }],
+            ]
+          }
+        });
+      } catch (e3) {
+        console.log('No pude avisar retiro al admin/grupo:', e3.message || e3);
+      }
+
+      // limpiar estado
+      estado[chatId] = undefined;
+      return;
+    }
+
+  } catch (e) {
+    console.log('Error en handler de texto:', e);
+    try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
+  }
+});
+// ================== HANDLER ÚNICO DE TEXTO ==================
+bot.on('text', async (ctx) => {
+  try {
+    const chatId = ctx.from.id;
     const txtRaw = (ctx.message.text || '').trim();
     if (txtRaw.startsWith('/')) return; // no tragar comandos
 
@@ -510,33 +562,33 @@ bot.on('text', async (ctx) => {
         `• Cuando el admin confirme la recepción, tu inversión será acreditada.`
       );
 
-   // ===== Aviso al grupo admin =====
-try {
-  const adminBody =
-    `📥 Comprobante de DEPÓSITO\n` +
-    `ID: #${depId}\n` +
-    `User: ${chatId}\n` +
-    `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
-    (moneda === 'CUP'
-      ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n`
-      : ``) +
-    `Usa los botones para validar.`;
-
-  await bot.telegram.sendMessage(
-    ADMIN_GROUP_ID,
-    adminBody,
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
-          [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}`  }]
-        ]
+      // Aviso al grupo admin
+      try {
+        await bot.telegram.sendMessage(
+          ADMIN_GROUP_ID,
+          `📩 Comprobante de DEPÓSITO\n` +
+          `ID: #${depId}\n` +
+          `User: ${chatId}\n` +
+          `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
+          (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : '') +
+          `Usa los botones para validar.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
+                [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}`  }]
+              ]
+            }
+          }
+        );
+      } catch (e2) {
+        console.log('No pude avisar al admin/grupo (depósito):', e2.message || e2);
       }
+
+      // limpiar estado para no comerse el siguiente mensaje
+      estado[chatId] = undefined;
+      return;
     }
-  );
-} catch (e2) {
-  console.log('No pude avisar al admin/grupo (depósito):', e2?.message || e2);
-}
 
     // =============== RETIRAR (si lo usas en este handler) ===============
     if (st === 'RET') {
@@ -624,36 +676,6 @@ try {
   }
 });
 // ================== FIN HANDLER ÚNICO DE TEXTO ==================
-      
-// Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
-bot.on('photo', async (ctx) => {
-  try {
-    const uid = ctx.from.id;
-    const photos = ctx.message.photo || [];
-    if (!photos.length) return;
-    const best = photos[photos.length - 1];
-    const fileId = best.file_id;
-
-    const { data: dep } = await supabase.from('depositos')
-      .select('id, estado').eq('telegram_id', uid).eq('estado', 'pendiente')
-      .order('id', { ascending: false }).limit(1).maybeSingle();
-
-    if (!dep) return ctx.reply('No encuentro un depósito pendiente para guardar tu comprobante.');
-
-    await supabase.from('depositos').update({ proof_file_id: fileId }).eq('id', dep.id);
-    await ctx.reply('Comprobante guardado para el depósito #' + dep.id + '.');
-
-    // Enviar la foto al grupo con botones
-    try {
-      const caption = 'Comprobante de DEPÓSITO\n' +
-                      'ID: #' + dep.id + '\n' +
-                      'User: ' + uid + '\n' +
-                      'Usa los botones para validar.';
-      await avisarAdminFoto(fileId, caption, { reply_markup: kbDep(dep.id).reply_markup });
-    } catch (e) { console.log('No pude mandar la foto al admin/grupo:', e.message || e); }
-
-  } catch (e) { console.log(e); }
-});
 
 // /tx: guarda hash en un depósito pendiente del usuario y lo manda al grupo
 bot.command('tx', async (ctx) => {
@@ -1025,6 +1047,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
