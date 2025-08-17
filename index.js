@@ -222,7 +222,7 @@ await ctx.reply(
   menu()
 );
 
-// Aviso al grupo admin (con botones)
+// // Aviso al grupo admin (con botones)
 try {
   const adminBody =
     `📥 Comprobante de DEPÓSITO\n` +
@@ -540,6 +540,7 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
