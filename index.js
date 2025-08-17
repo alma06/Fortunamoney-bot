@@ -439,7 +439,16 @@ bot.on('text', async (ctx) => {
     if (txtRaw.startsWith('/')) return;
 
     const st = estado[chatId];
-    if (st !== 'INV_USDT' && st !== 'INV_CUP' && st !== 'RET') return;
+console.log('[TXT] chatId=', chatId, 'estado=', st, 'msg=', txtRaw);
+
+if (st !== 'INV_USDT' && st !== 'INV_CUP' && st !== 'RET') {
+  await ctx.reply(
+    'Primero elige el método:\n' +
+    '• Toca **USDT (BEP20)** o **CUP (Tarjeta)** para invertir, o\n' +
+    '• Usa el botón **Retirar** para retirar.'
+  );
+  return;
+}
 
     // Normaliza número
     const txt = txtRaw.replace(',', '.');
@@ -962,6 +971,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
