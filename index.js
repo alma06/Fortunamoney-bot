@@ -21,6 +21,7 @@ const SUPABASE_KEY   = process.env.SUPABASE_KEY;
 const ADMIN_ID       = Number(process.env.ADMIN_ID || 0);
 const WALLET_USDT    = process.env.WALLET_USDT || 'WALLET_NO_CONFIGURADA';
 const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID ? Number(process.env.ADMIN_GROUP_ID) : null;
+const CUP_PER_USDT = Number(process.env.CUP_PER_USDT || 400);
 
 const HOST_URL       = process.env.HOST_URL || ''; // URL pública (Render)
 const CRON_SECRET    = process.env.CRON_SECRET || 'cambia_esto';
@@ -361,6 +362,7 @@ bot.command('pagarhoy', async (ctx) => {
   await ctx.reply('Pago diario ejecutado. Usuarios pagados: ' + n);
 });
 // ==== Texto: flujos de invertir y retirar ====
+
 // Opción USDT
 bot.action('inv:usdt', async (ctx) => {
   try {
@@ -377,25 +379,25 @@ bot.action('inv:cup', async (ctx) => {
     const chatId = ctx.from.id;
     estado[chatId] = 'INV_CUP';
     await ctx.answerCbQuery();
-    await ctx.reply('Escribe el monto a invertir en CUP (solo número, ejemplo: 2500.00).');
+    await ctx.reply('Escribe el monto a invertir en CUP (mínimo 500 CUP). Solo número, ejemplo: 20000');
   } catch (e) { console.log(e); }
 });
+
 // Usuario elige USDT
 bot.action('curr:USDT', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     monedaInv[chatId] = 'USDT';
 
-    // Si no tenía preferencia, guárdala
     await supabase.from('usuarios')
       .update({ moneda_preferida: 'USDT' })
       .eq('telegram_id', chatId)
       .is('moneda_preferida', null);
 
     await ctx.answerCbQuery('Moneda: USDT');
-    await ctx.editMessageReplyMarkup(); // quitar botones
+    await ctx.editMessageReplyMarkup();
     await ctx.reply(
-      'Escribe el monto a invertir en USDT (mínimo ' + MIN_INVERSION + '). Solo número, ej: 50.00'
+      `Escribe el monto a invertir en USDT (mínimo ${MIN_INVERSION}). Solo número, ej: 50.00`
     );
   } catch (e) { console.log(e); }
 });
@@ -406,14 +408,13 @@ bot.action('curr:CUP', async (ctx) => {
     const chatId = ctx.from.id;
     monedaInv[chatId] = 'CUP';
 
-    // Si no tenía preferencia, guárdala
     await supabase.from('usuarios')
       .update({ moneda_preferida: 'CUP' })
       .eq('telegram_id', chatId)
       .is('moneda_preferida', null);
 
     await ctx.answerCbQuery('Moneda: CUP');
-    await ctx.editMessageReplyMarkup(); // quitar botones
+    await ctx.editMessageReplyMarkup();
     await ctx.reply(
       'Escribe el monto a invertir en CUP (mínimo 500 CUP). Solo número, ej: 20000'
     );
@@ -425,12 +426,11 @@ bot.on('text', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     const txtRaw = (ctx.message.text || '').trim();
-    if (txtRaw.startsWith('/')) return; // ignorar comandos
+    if (txtRaw.startsWith('/')) return;
 
     const st = estado[chatId];
-    if (st !== 'INV_USDT' && st !== 'INV_CUP') return; // solo si está en modo inversión
+    if (st !== 'INV_USDT' && st !== 'INV_CUP') return;
 
-    // Normaliza número (permite coma o punto)
     const txt = txtRaw.replace(',', '.');
     const monto = Number(txt);
 
@@ -439,7 +439,6 @@ bot.on('text', async (ctx) => {
       return;
     }
 
-    // Validaciones por método
     if (st === 'INV_USDT' && monto < MIN_INVERSION) {
       await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
       return;
@@ -449,28 +448,26 @@ bot.on('text', async (ctx) => {
       return;
     }
 
-    // Asegura usuario
     await asegurarUsuario(chatId);
 
-    // Preparar datos para guardar
     let montoFinal = monto;
     let moneda = (st === 'INV_USDT') ? 'USDT' : 'CUP';
     let tasa_usdt = null;
     let monto_origen = monto;
 
-    // Si es CUP lo convertimos a USDT con tasa fija
+    // Conversión CUP → USDT
     if (st === 'INV_CUP') {
-      tasa_usdt = Number(process.env.CUP_USDT_RATE || 400); // tasa fija
-      montoFinal = monto / tasa_usdt; // convertir a USDT equivalente
+      tasa_usdt = Number(process.env.CUP_USDT_RATE || 400);
+      montoFinal = monto / tasa_usdt;
     }
 
-    // Guardar depósito
+    // Guardar en la tabla depósitos
     const ins = await supabase.from('depositos').insert([{
       telegram_id: chatId,
-      monto: montoFinal,        // siempre guardamos en USDT equivalentes
+      monto: montoFinal,        // SIEMPRE en USDT
       moneda,                   // 'USDT' o 'CUP'
-      monto_origen,             // el monto que escribió el usuario
-      tasa_usdt,                // null si es USDT directo
+      monto_origen,             // monto original que escribió
+      tasa_usdt,                // null si fue USDT directo
       estado: 'pendiente'
     }]).select('id').single();
 
@@ -482,31 +479,29 @@ bot.on('text', async (ctx) => {
 
     const depId = ins.data.id;
 
-    // Mensaje de confirmación al usuario
     await ctx.reply(
       `✅ Depósito creado (pendiente).\n\n` +
       `ID: ${depId}\n` +
       `Monto: ${monto_origen} ${moneda}\n` +
       (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : '') +
       `Método: ${moneda}\n\n` +
-      `• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n` +
-      `• Cuando el admin confirme la recepción, tu inversión será acreditada.`
+      `• Envía el hash de la transacción (USDT) o una foto del pago (CUP).\n` +
+      `• Cuando el admin confirme, tu inversión será acreditada.`
     );
 
-    // Aviso al grupo admin
     await bot.telegram.sendMessage(
       ADMIN_GROUP_ID,
-      `📩 Comprobante de DEPÓSITO\n` +
+      `📩 DEPÓSITO pendiente\n` +
       `ID: #${depId}\n` +
       `User: ${chatId}\n` +
       `Monto: ${monto_origen} ${moneda}\n` +
       (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : '') +
-      `Usa los botones para validar.`,
+      `Método: ${moneda}`,
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: 'Aprobar', callback_data: `dep:approve:${depId}` }],
-            [{ text: 'Rechazar', callback_data: `dep:reject:${depId}` }]
+            [{ text: '✅ Aprobar', callback_data: `dep:approve:${depId}` }],
+            [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}` }]
           ]
         }
       }
@@ -920,6 +915,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
