@@ -618,10 +618,6 @@ try {
       }
     }
   );
-} catch (e) {
-  console.log('No pude avisar al admin/grupo (retiro):', e.message || e);
-}
-
       // ---- LIMPIA ESTADO Y SALE DEL HANDLER ----
     estado[chatId] = undefined;
     return;
@@ -1034,6 +1030,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
