@@ -633,11 +633,22 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
 
     await supabase.from('retiros').update({ estado: 'aprobado', aprobado_en: new Date().toISOString() }).eq('id', rid);
 
-    try { await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro de ' + Number(r.monto).toFixed(2) + ' USDT fue APROBADO.'); } catch {}
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply('Retiro #' + rid + ' aprobado.');
-  } catch (e) { console.log(e); }
-});
+    try {
+  // Aviso al usuario
+  await bot.telegram.sendMessage(r.telegram_id, 'Tu retiro de ' + Number(r.monto).toFixed(2) + ' USDT fue APROBADO');
+  await ctx.editMessageReplyMarkup();
+  await ctx.reply('Retiro #' + rid + ' aprobado.');
+
+  // Aviso al canal de pagos
+  const channelId = process.env.PAYMENT_CHANNEL_ID;
+  await bot.telegram.sendMessage(channelId,
+    `💸 Nuevo RETIRO aprobado\n\n` +
+    `👤 Usuario: ${r.telegram_id}\n` +
+    `💰 Monto: ${Number(r.monto).toFixed(2)} USDT\n` +
+    `✅ Estado: Aprobado`
+  );
+
+} catch (e) { console.log(e); }
 
 bot.action(/ret:reject:(\d+)/, async (ctx) => {
   try {
@@ -709,6 +720,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
