@@ -583,42 +583,42 @@ await bot.telegram.sendMessage(
       const retId = insR.data.id;
 
       // Mensaje al usuario
-      await ctx.reply(
-        Retiro creado (pendiente).\n\n +
-        ID: ${retId}\n +
-        Monto: ${monto.toFixed(2)} USDT\n +
-        Fee descontado: ${fee.toFixed(2)} USDT\n\n +
-        (pref === 'CUP'
-          ? El admin procesará tu pago en CUP (tasa fija).
-          : El admin procesará tu pago.)
-      );
+await ctx.reply(
+  `Retiro creado (pendiente).\n\n` +
+  `ID: #${retId}\n` +
+  `Monto: $${monto.toFixed(2)} USDT\n` +
+  `Fee descontado: $${fee.toFixed(2)} USDT\n\n` +
+  (pref === 'CUP'
+    ? 'El admin procesará tu pago en CUP (tasa fija).'
+    : 'El admin procesará tu pago.')
+);
 
-      // Aviso al grupo admin
-      try {
-        const tasa = Number(process.env.CUP_USDT_RATE || 400);
-        const cupEq = (pref === 'CUP') ? (monto * tasa) : null;
+// Aviso al grupo admin
+try {
+  const tasa = Number(process.env.CUP_USDT_RATE || 400);
+  const cupEq = (pref === 'CUP') ? (monto * tasa) : null;
 
-        await bot.telegram.sendMessage(
-          ADMIN_GROUP_ID,
-          🟢 Nuevo RETIRO pendiente\n +
-          ID: #${retId}\n +
-          Usuario: ${chatId}\n +
-          Monto: ${monto.toFixed(2)} USDT\n +
-          Fee: ${fee.toFixed(2)} USDT\n +
-          (cupEq ? Equivalente: ${cupEq.toFixed(0)} CUP\n : ``) +
-          Preferencia: ${pref || '—'},
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '✅ Aprobar',  callback_data: ret:approve:${retId} }],
-                [{ text: '❌ Rechazar', callback_data: ret:reject:${retId}  }]
-              ]
-            }
-          }
-        );
-      } catch (err) {
-        console.log('No se pudo mandar al canal de pagos:', err?.message || err);
+  await bot.telegram.sendMessage(
+    ADMIN_GROUP_ID,
+    `🆕 Nuevo RETIRO pendiente\n` +
+    `ID: #${retId}\n` +
+    `Usuario: ${chatId}\n` +
+    `Monto: $${monto.toFixed(2)} USDT\n` +
+    `Fee: $${fee.toFixed(2)} USDT\n` +
+    (cupEq ? `CUP eq. (tasa ${tasa}): ${cupEq.toFixed(0)} CUP\n` : ``) +
+    `Preferencia: ${pref || '—'}`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Aprobar',  callback_data: `ret:approve:${retId}` }],
+          [{ text: 'Rechazar', callback_data: `ret:reject:${retId}`  }]
+        ]
       }
+    }
+  );
+} catch (e) {
+  console.log('No pude avisar al admin/grupo (retiro):', e.message || e);
+}
 
       // Limpia estado
       estado[chatId] = undefined;
@@ -1030,6 +1030,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
