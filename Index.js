@@ -471,29 +471,7 @@ bot.on('text', async (ctx) => {
   }
 });
 
-      // ---- INSTRUCCIONES DE DEPÓSITO (USDT + CUP) ----
-const wUsdt = (process.env.WALLET_USDT || '').trim();
-const wCup  = (process.env.WALLET_CUP  || '').trim();
-
-let metodos = 'Métodos de depósito:\n';
-if (wUsdt) metodos += `• USDT (BEP20): \`${wUsdt}\`\n`;
-if (wCup)  metodos += `• CUP (tarjeta): \`${wCup}\`\n`;
-
-await ctx.reply(
-  'Depósito creado (pendiente).\n' +
-  `ID: ${depId}\n` +
-  `Monto: ${monto.toFixed(2)} USDT\n\n` +
-  `${metodos}\n` +
-  'Envía el hash con: `/tx ' + depId + ' TU_HASH_AQUI`\n' +
-  'Y envía una foto/captura del pago en este chat.\n' +
-  'Cuando el admin confirme la recepción, tu inversión será acreditada.',
-  { parse_mode: 'Markdown' }
-);
-      estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
-      return;
-    }
-
+      
     // Retirar
     if (estado[chatId] === 'RET') {
       const monto = Number(txt.replace(',', '.'));
@@ -848,6 +826,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
