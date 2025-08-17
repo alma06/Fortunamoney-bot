@@ -546,28 +546,28 @@ bot.command('tx', async (ctx) => {
   }
 });
 
-// ======== ADMIN – Depósitos (listado y foto) ========
+// ======= ADMIN – Depósitos (listado y foto) =======
 bot.command('pendientes', async (ctx) => {
-  if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
+  if (ctx.from.id != ADMIN_ID && ctx.chat.id != ADMIN_GROUP_ID) return;
   const { data, error } = await supabase.from('depositos')
     .select('id, telegram_id, monto, creado_en, tx, proof_file_id')
     .eq('estado', 'pendiente').order('id', { ascending: true });
   if (error) return ctx.reply('Error listando pendientes.');
   if (!data || data.length === 0) return ctx.reply('Sin depósitos pendientes.');
+
   let msg = 'Depósitos pendientes:\n';
   data.forEach(d => {
-    msg += '#' + d.id +
-      ' | user ' + d.telegram_id +
-      ' | ' + Number(d.monto).toFixed(2) + ' USDT' +
-      ' | hash: ' + (d.tx ? 'SI' : 'NO') +
-      ' | foto: ' + (d.proof_file_id ? 'SI' : 'NO') +
-      '\n';
+    msg += `#${d.id} \n` +
+           `👤 User: ${d.telegram_id}\n` +
+           `💰 ${Number(d.monto).toFixed(2)} USDT\n` +
+           `📌 Hash: ${d.tx ? 'SI' : 'NO'}\n` +
+           `📷 Foto: ${d.proof_file_id ? 'SI' : 'NO'}\n\n`;
   });
   await ctx.reply(msg);
 });
 
 bot.command('verfoto', async (ctx) => {
-  if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
+  if (ctx.from.id != ADMIN_ID && ctx.chat.id != ADMIN_GROUP_ID) return;
   const parts = (ctx.message.text || '').trim().split(/\s+/);
   if (parts.length < 2) return ctx.reply('Uso: /verfoto <id_deposito>');
   const depId = Number(parts[1]);
@@ -577,17 +577,66 @@ bot.command('verfoto', async (ctx) => {
   if (!dep) return ctx.reply('Depósito no encontrado.');
   if (!dep.proof_file_id) return ctx.reply('Ese depósito no tiene foto.');
 
-  try { await ctx.replyWithPhoto(dep.proof_file_id); }
-  catch (e) { console.log(e); await ctx.reply('No pude enviar la foto (file_id inválido).'); }
+  try { 
+    await ctx.replyWithPhoto(dep.proof_file_id); 
+  }
+  catch (e) { 
+    console.log(e); 
+    await ctx.reply('No pude enviar la foto (file_id inválido).'); 
+  }
 });
+
 // ======= ADMIN – Acciones depósito por botones =======
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
-    ...
+  try {
+    if (ctx.from.id != ADMIN_ID && ctx.chat.id != ADMIN_GROUP_ID) return;
+    const depId = Number(ctx.match[1]);
+
+    const { data: d } = await supabase.from('depositos').select('*').eq('id', depId).single();
+    if (!d) return ctx.answerCbQuery('No encontrado');
+    if (d.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
+
+    await supabase.from('depositos')
+      .update({ estado: 'aprobado', aprobado_en: new Date().toISOString() })
+      .eq('id', depId);
+
+    await bot.telegram.sendMessage(
+      d.telegram_id,
+      `✅ Tu depósito #${depId} de ${Number(d.monto).toFixed(2)} ${d.metodo} fue APROBADO`
+    );
+
+    await ctx.editMessageReplyMarkup();
+    await ctx.reply(`Depósito #${depId} aprobado.`);
+  } catch (e) {
+    console.log(e);
+  }
 });
 
 bot.action(/dep:reject:(\d+)/, async (ctx) => {
-    ...
+  try {
+    if (ctx.from.id != ADMIN_ID && ctx.chat.id != ADMIN_GROUP_ID) return;
+    const depId = Number(ctx.match[1]);
+
+    const { data: d } = await supabase.from('depositos').select('*').eq('id', depId).single();
+    if (!d) return ctx.answerCbQuery('No encontrado');
+    if (d.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
+
+    await supabase.from('depositos')
+      .update({ estado: 'rechazado' })
+      .eq('id', depId);
+
+    await bot.telegram.sendMessage(
+      d.telegram_id,
+      `❌ Tu depósito #${depId} de ${Number(d.monto).toFixed(2)} ${d.metodo} fue RECHAZADO`
+    );
+
+    await ctx.editMessageReplyMarkup();
+    await ctx.reply(`Depósito #${depId} rechazado.`);
+  } catch (e) {
+    console.log(e);
+  }
 });
+
 // ======== ADMIN - Acciones retiro por botones ========
 bot.action(/ret:approve:(\d+)/, async (ctx) => {
   try {
@@ -800,6 +849,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
