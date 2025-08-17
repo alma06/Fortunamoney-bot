@@ -30,6 +30,12 @@ const PORT           = process.env.PORT || 3000;
 const MIN_INVERSION   = 25; // USDT
 const RETIRO_FEE_USDT = 1;  // USDT
 
+// === Conversión CUP a USDT (1 CUP -> USDT). Si 1 USDT = 400 CUP => 1 CUP = 0.0025 USDT
+const CUP_USDT_RATE = Number(process.env.CUP_USDT_RATE || 0.0025);
+
+// Estado temporal de la inversión (moneda elegida en el paso previo)
+const monedaInv = {}; // monedaInv[chatId] = 'USDT' | 'CUP'
+
 if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !WALLET_USDT) {
   console.log('Faltan variables en .env (BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY, ADMIN_ID, WALLET_USDT)');
   process.exit(1);
@@ -75,7 +81,12 @@ function kbMetodoInv() {
     [Markup.button.callback('CUP (Tarjeta)', 'inv:cup')],
   ]);
 }
-
+function kbMoneda() {
+  return Markup.inlineKeyboard([
+    [ Markup.button.callback('USDT (BEP20)', 'curr:USDT') ],
+    [ Markup.button.callback('CUP (tarjeta)', 'curr:CUP') ],
+  ]);
+}
 // ======== Helpers BD ========
 async function asegurarUsuario(telegram_id) {
   let { data: u } = await supabase.from('usuarios')
@@ -230,8 +241,12 @@ bot.hears('Invertir', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     await asegurarUsuario(chatId);
-    estado[chatId] = undefined;        // limpia cualquier estado previo
-    await ctx.reply('Elige el método de inversión:', kbMetodoInv());
+    estado[chatId] = 'INV';
+    // Primero elige moneda
+    await ctx.reply(
+      'Elige con qué vas a invertir:',
+      kbMoneda()
+    );
   } catch (e) { console.log(e); }
 });
 
@@ -250,40 +265,52 @@ bot.hears('Retirar', async (ctx) => {
 });
 
 bot.hears('Saldo', async (ctx) => {
+  try {
+    const chatId = ctx.from.id;
+    await asegurarUsuario(chatId);
+    const car = await carteraDe(chatId);
+
+    const invertidoNeto = Number(car.invertido || 0);
+    const disponible = Number(car.saldo || 0);
+    const bruto = brutoDesdeNeto(invertidoNeto);
+    const retirado = await totalRetirado(chatId);
+    const tope = tope500Bruto(bruto);
+    const pagadoHastaAhora = disponible + retirado;
+    const progreso = tope > 0 ? Math.min(100, (pagadoHastaAhora / tope) * 100) : 0;
+
+    // Buscar último depósito APROBADO en CUP del usuario
+    let detalleCUP = '';
     try {
-        const chatId = ctx.from.id;
-        await asegurarUsuario(chatId);
-        const car = await carteraDe(chatId);
+      const { data: depCup } = await supabase
+        .from('depositos')
+        .select('monto_origen, monto, tasa_usdt, moneda')
+        .eq('telegram_id', chatId)
+        .eq('estado', 'aprobado')
+        .eq('moneda', 'CUP')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-        const invertidoNeto = Number(car.invertido || 0);
-        const disponible    = Number(car.saldo || 0);
-        const bruto         = brutoDesdeNeto(invertidoNeto);
-        const retirado      = await totalRetirado(chatId);
-        const tope          = tope500Bruto(bruto);
-        const pagadoHastaAhora = disponible + retirado;
-        const progreso      = tope > 0 ? Math.min(100, (pagadoHastaAhora / tope) * 100) : 0;
+      if (depCup && depCup.moneda === 'CUP') {
+        detalleCUP =
+          `\nÚltimo depósito CUP: ${Number(depCup.monto_origen || 0).toFixed(2)} CUP ` +
+          `→ ${Number(depCup.monto || 0).toFixed(2)} USDT @ tasa ${Number(depCup.tasa_usdt || 0).toFixed(2)}.`;
+      }
+    } catch (e) {
+      console.log('No se pudo consultar detalle CUP:', e?.message || e);
+    }
 
-        await ctx.reply(
-            'Tu saldo:' +
-            '\n Principal (invertido): ' + invertidoNeto.toFixed(2) +
-            '\n Disponible: ' + disponible.toFixed(2) +
-            '\n Total: ' + invertidoNeto.toFixed(2) +
-            '\n' +
-            '\nBruto (base para 500%): ' + bruto.toFixed(2) +
-            '\nProgreso hacia 500%: ' + progreso.toFixed(2) + '%'
-        );
-    } catch (e) { console.log(e); }
-});
-
-bot.hears('Referidos', async (ctx) => {
-    try {
-        const chatId = ctx.from.id;
-        const enlace = 'https://t.me/' + (ctx.botInfo.username || 'FortuBot') + '?start=ref_' + chatId;
-        await ctx.reply(
-            'Tu enlace de referido:\n' + enlace +
-            '\nGanas 10% de cada inversión de tu referido (retirable).'
-        );
-    } catch (e) { console.log(e); }
+    await ctx.reply(
+      'Tu saldo (en USDT):\n' +
+      `\n Principal (invertido):  ${invertidoNeto.toFixed(2)}` +
+      `\n Disponible:            ${disponible.toFixed(2)}` +
+      `\n Total:                 ${(invertidoNeto + disponible).toFixed(2)}` +
+      '\n' +
+      `\n Bruto (base para 500%): ${bruto.toFixed(2)}` +
+      `\n Progreso hacia 500%:    ${progreso.toFixed(2)}%` +
+      detalleCUP
+    );
+  } catch (e) { console.log(e); }
 });
 
 // Pago manual para pruebas (también expuesto como /run-pago)
@@ -353,29 +380,66 @@ bot.action('inv:cup', async (ctx) => {
     await ctx.reply('Escribe el monto a invertir en CUP (solo número, ejemplo: 2500.00).');
   } catch (e) { console.log(e); }
 });
+// Usuario elige USDT
+bot.action('curr:USDT', async (ctx) => {
+  try {
+    const chatId = ctx.from.id;
+    monedaInv[chatId] = 'USDT';
+
+    // Si no tenía preferencia, guárdala
+    await supabase.from('usuarios')
+      .update({ moneda_preferida: 'USDT' })
+      .eq('telegram_id', chatId)
+      .is('moneda_preferida', null);
+
+    await ctx.answerCbQuery('Moneda: USDT');
+    await ctx.editMessageReplyMarkup(); // quitar botones
+    await ctx.reply(
+      'Escribe el monto a invertir en USDT (mínimo ' + MIN_INVERSION + '). Solo número, ej: 50.00'
+    );
+  } catch (e) { console.log(e); }
+});
+
+// Usuario elige CUP
+bot.action('curr:CUP', async (ctx) => {
+  try {
+    const chatId = ctx.from.id;
+    monedaInv[chatId] = 'CUP';
+
+    // Si no tenía preferencia, guárdala
+    await supabase.from('usuarios')
+      .update({ moneda_preferida: 'CUP' })
+      .eq('telegram_id', chatId)
+      .is('moneda_preferida', null);
+
+    await ctx.answerCbQuery('Moneda: CUP');
+    await ctx.editMessageReplyMarkup(); // quitar botones
+    await ctx.reply(
+      'Escribe el monto a invertir en CUP (mínimo 500 CUP). Solo número, ej: 20000'
+    );
+  } catch (e) { console.log(e); }
+});
 
 // Handler de texto: captura MONTOS después de elegir método
 bot.on('text', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     const txtRaw = (ctx.message.text || '').trim();
-    if (txtRaw.startsWith('/')) return; // no comerse comandos
+    if (txtRaw.startsWith('/')) return; // ignorar comandos
 
     const st = estado[chatId];
-    // Solo procesamos si está esperando un monto
-    if (st !== 'INV_USDT' && st !== 'INV_CUP') return;
+    if (st !== 'INV_USDT' && st !== 'INV_CUP') return; // solo si está en modo inversión
 
     // Normaliza número (permite coma o punto)
     const txt = txtRaw.replace(',', '.');
     const monto = Number(txt);
-    console.log('INV MODO=', st, ' MONTO=', txtRaw, '->', monto);
 
     if (isNaN(monto) || monto <= 0) {
       await ctx.reply('Monto inválido. Intenta de nuevo.');
       return;
     }
 
-    // Mínimos por método
+    // Validaciones por método
     if (st === 'INV_USDT' && monto < MIN_INVERSION) {
       await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
       return;
@@ -388,70 +452,70 @@ bot.on('text', async (ctx) => {
     // Asegura usuario
     await asegurarUsuario(chatId);
 
+    // Preparar datos para guardar
+    let montoFinal = monto;
+    let moneda = (st === 'INV_USDT') ? 'USDT' : 'CUP';
+    let tasa_usdt = null;
+    let monto_origen = monto;
+
+    // Si es CUP lo convertimos a USDT con tasa fija
+    if (st === 'INV_CUP') {
+      tasa_usdt = Number(process.env.CUP_USDT_RATE || 400); // tasa fija
+      montoFinal = monto / tasa_usdt; // convertir a USDT equivalente
+    }
+
     // Guardar depósito
     const ins = await supabase.from('depositos').insert([{
       telegram_id: chatId,
-      monto,
-      metodo: (st === 'INV_USDT' ? 'USDT' : 'CUP'),
+      monto: montoFinal,        // siempre guardamos en USDT equivalentes
+      moneda,                   // 'USDT' o 'CUP'
+      monto_origen,             // el monto que escribió el usuario
+      tasa_usdt,                // null si es USDT directo
       estado: 'pendiente'
     }]).select('id').single();
 
     if (ins.error) {
       console.log(ins.error);
-      await ctx.reply('No se pudo crear el depósito. Intenta nuevamente.');
-      estado[chatId] = undefined;
+      await ctx.reply('Error guardando el depósito.');
       return;
     }
 
     const depId = ins.data.id;
 
-    // Instrucciones dinámicas
-    let instrucciones = '';
-    if (st === 'INV_USDT') {
-      instrucciones =
-        'Método: USDT (BEP20)\n' +
-        `Wallet: \`${process.env.WALLET_USDT}\``;
-    } else {
-      instrucciones =
-        'Método: CUP (Tarjeta)\n' +
-        `Número de tarjeta: \`${process.env.WALLET_CUP}\``;
-    }
-
-    // Mensaje al usuario
+    // Mensaje de confirmación al usuario
     await ctx.reply(
-      '✅ Depósito creado (pendiente).\n\n' +
-      `ID: #${depId}\n` +
-      `Monto: $${monto.toFixed(2)} ${st === 'INV_USDT' ? 'USDT' : 'CUP'}\n` +
-      `${instrucciones}\n\n` +
-      '• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n' +
-      '• Cuando el admin confirme la recepción, tu inversión será acreditada.',
-      { parse_mode: 'Markdown' }
+      `✅ Depósito creado (pendiente).\n\n` +
+      `ID: ${depId}\n` +
+      `Monto: ${monto_origen} ${moneda}\n` +
+      (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : '') +
+      `Método: ${moneda}\n\n` +
+      `• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n` +
+      `• Cuando el admin confirme la recepción, tu inversión será acreditada.`
     );
 
-    // Aviso al admin/grupo (opcional; usa tu helper si ya lo tienes)
-    try {
-      const aviso =
-        '🧾 Nuevo DEPÓSITO pendiente\n' +
-        `ID: #${depId}\n` +
-        `User: ${chatId}\n` +
-        `Monto: $${monto.toFixed(2)}\n` +
-        `Método: ${st === 'INV_USDT' ? 'USDT (BEP20)' : 'CUP (tarjeta)'}\n` +
-        'Hash/Foto: …';
-      await avisarAdmin(aviso);
-    } catch (e2) {
-      console.log('No pude avisar al admin/grupo:', e2.message || e2);
-    }
-
-    // Muy importante: limpiar estado para no caer en otros flujos
-    estado[chatId] = undefined;
-    return;
+    // Aviso al grupo admin
+    await bot.telegram.sendMessage(
+      ADMIN_GROUP_ID,
+      `📩 Comprobante de DEPÓSITO\n` +
+      `ID: #${depId}\n` +
+      `User: ${chatId}\n` +
+      `Monto: ${monto_origen} ${moneda}\n` +
+      (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : '') +
+      `Usa los botones para validar.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Aprobar', callback_data: `dep:approve:${depId}` }],
+            [{ text: 'Rechazar', callback_data: `dep:reject:${depId}` }]
+          ]
+        }
+      }
+    );
 
   } catch (e) {
-    console.log(e);
-    try { await ctx.reply('Ocurrió un error.'); } catch {}
+    console.log('Error en handler de texto:', e);
   }
 });
-
 
 // Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
 bot.on('photo', async (ctx) => {
@@ -551,57 +615,99 @@ bot.command('verfoto', async (ctx) => {
   }
 });
 
-// ======= ADMIN – Acciones depósito por botones =======
+// ======= ADMIN – Acciones DEPÓSITO por botones =======
+// Aprueba depósito
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
   try {
-    if (ctx.from.id != ADMIN_ID && ctx.chat.id != ADMIN_GROUP_ID) return;
+    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
     const depId = Number(ctx.match[1]);
 
-    const { data: d } = await supabase.from('depositos').select('*').eq('id', depId).single();
-    if (!d) return ctx.answerCbQuery('No encontrado');
-    if (d.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
+    const { data: dep } = await supabase
+      .from('depositos')
+      .select('id, telegram_id, estado, monto, moneda, monto_origen, tasa_usdt')
+      .eq('id', depId)
+      .single();
 
-    await supabase.from('depositos')
+    if (!dep) return ctx.answerCbQuery('Depósito no encontrado');
+    if (dep.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
+
+    // Acreditar en cartera (sumar al INVERTIDO el monto en USDT equivalente)
+    const { data: car } = await supabase
+      .from('carteras')
+      .select('invertido')
+      .eq('telegram_id', dep.telegram_id)
+      .single();
+
+    const invertidoActual = Number(car?.invertido || 0);
+    const nuevoInvertido = invertidoActual + Number(dep.monto || 0);
+
+    await supabase
+      .from('carteras')
+      .update({ invertido: nuevoInvertido })
+      .eq('telegram_id', dep.telegram_id);
+
+    // Marcar depósito aprobado
+    await supabase
+      .from('depositos')
       .update({ estado: 'aprobado', aprobado_en: new Date().toISOString() })
       .eq('id', depId);
 
+    // Avisar al usuario
     await bot.telegram.sendMessage(
-      d.telegram_id,
-      `✅ Tu depósito #${depId} de ${Number(d.monto).toFixed(2)} ${d.metodo} fue APROBADO`
+      dep.telegram_id,
+      `✅ Depósito #${depId} APROBADO\n` +
+      `Monto acreditado: ${Number(dep.monto).toFixed(2)} USDT` +
+      (dep.moneda === 'CUP'
+        ? ` (proveniente de ${Number(dep.monto_origen).toFixed(2)} CUP a tasa ${dep.tasa_usdt})`
+        : '')
     );
 
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply(`Depósito #${depId} aprobado.`);
+    // Quitar los botones del mensaje admin
+    try { await ctx.editMessageReplyMarkup(); } catch (_) {}
+
+    await ctx.answerCbQuery('Depósito aprobado ✔️');
   } catch (e) {
-    console.log(e);
+    console.log('Error dep:approve:', e);
+    try { await ctx.answerCbQuery('Error aprobando'); } catch {}
   }
 });
 
+// Rechaza depósito
 bot.action(/dep:reject:(\d+)/, async (ctx) => {
   try {
-    if (ctx.from.id != ADMIN_ID && ctx.chat.id != ADMIN_GROUP_ID) return;
+    if (ctx.from.id !== ADMIN_ID && ctx.chat.id !== ADMIN_GROUP_ID) return;
     const depId = Number(ctx.match[1]);
 
-    const { data: d } = await supabase.from('depositos').select('*').eq('id', depId).single();
-    if (!d) return ctx.answerCbQuery('No encontrado');
-    if (d.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
+    const { data: dep } = await supabase
+      .from('depositos')
+      .select('id, telegram_id, estado, monto_origen, moneda')
+      .eq('id', depId)
+      .single();
 
-    await supabase.from('depositos')
-      .update({ estado: 'rechazado' })
+    if (!dep) return ctx.answerCbQuery('Depósito no encontrado');
+    if (dep.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
+
+    await supabase
+      .from('depositos')
+      .update({ estado: 'rechazado', rechazado_en: new Date().toISOString() })
       .eq('id', depId);
 
+    // Aviso al usuario
     await bot.telegram.sendMessage(
-      d.telegram_id,
-      `❌ Tu depósito #${depId} de ${Number(d.monto).toFixed(2)} ${d.metodo} fue RECHAZADO`
+      dep.telegram_id,
+      `❌ Depósito #${depId} RECHAZADO.\n` +
+      `Monto: ${Number(dep.monto_origen).toFixed(2)} ${dep.moneda}.`
     );
 
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply(`Depósito #${depId} rechazado.`);
+    // Quitar botones
+    try { await ctx.editMessageReplyMarkup(); } catch (_) {}
+
+    await ctx.answerCbQuery('Depósito rechazado ❌');
   } catch (e) {
-    console.log(e);
+    console.log('Error dep:reject:', e);
+    try { await ctx.answerCbQuery('Error rechazando'); } catch {}
   }
 });
-
 // ======== ADMIN - Acciones retiro por botones ========
 bot.action(/ret:approve:(\d+)/, async (ctx) => {
   try {
@@ -814,6 +920,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
