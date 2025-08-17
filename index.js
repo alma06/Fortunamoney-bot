@@ -333,17 +333,18 @@ bot.command('pagarhoy', async (ctx) => {
   const n = await pagarDiario();
   await ctx.reply('Pago diario ejecutado. Usuarios pagados: ' + n);
 });
-
 // ==== Texto: flujos de invertir y retirar ====
+// Opción USDT
 bot.action('inv:usdt', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     estado[chatId] = 'INV_USDT';
     await ctx.answerCbQuery();
-    await ctx.reply('Escribe el monto a invertir (mínimo ' + MIN_INVERSION + ' USDT). Solo número, ejemplo: 50.00');
+    await ctx.reply(`Escribe el monto a invertir (mínimo ${MIN_INVERSION} USDT). Solo número, ejemplo: 50.00`);
   } catch (e) { console.log(e); }
 });
 
+// Opción CUP
 bot.action('inv:cup', async (ctx) => {
   try {
     const chatId = ctx.from.id;
@@ -353,132 +354,96 @@ bot.action('inv:cup', async (ctx) => {
   } catch (e) { console.log(e); }
 });
 
+// Handler de texto: captura MONTOS después de elegir método
 bot.on('text', async (ctx) => {
   try {
     const chatId = ctx.from.id;
-    const txt = (ctx.message.text || '').trim();
-    if (txt.startsWith('/')) return; // no comerse comandos
+    const txtRaw = (ctx.message.text || '').trim();
+    if (txtRaw.startsWith('/')) return; // no comerse comandos
 
-// ======= INVERTIR (ingreso de monto, tras elegir método) =======
-if (estado[chatId] === 'INV_USDT' || estado[chatId] === 'INV_CUP') {
-  const monto = Number(txt.replace(',', '.'));
-  if (isNaN(monto) || monto <= 0) {
-    await ctx.reply('Monto inválido. Intenta de nuevo.');
-    return;
-  }
+    const st = estado[chatId];
+    // Solo procesamos si está esperando un monto
+    if (st !== 'INV_USDT' && st !== 'INV_CUP') return;
 
-  // Mínimos por método
-  if (estado[chatId] === 'INV_USDT' && monto < MIN_INVERSION) {
-    await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
-    return;
-  }
-  if (estado[chatId] === 'INV_CUP' && monto < 500) {
-    await ctx.reply('El mínimo de inversión es 500 CUP.');
-    return;
-  }
+    // Normaliza número (permite coma o punto)
+    const txt = txtRaw.replace(',', '.');
+    const monto = Number(txt);
+    console.log('INV MODO=', st, ' MONTO=', txtRaw, '->', monto);
 
-  await asegurarUsuario(chatId);
-
-  // Guardar depósito
-  const ins = await supabase.from('depositos').insert([{
-    telegram_id: chatId,
-    monto,
-    metodo: (estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'),
-    estado: 'pendiente'
-  }]).select('id').single();
-
-  if (ins.error) {
-    console.log(ins.error);
-    await ctx.reply('No se pudo crear el depósito. Intenta nuevamente.');
-    estado[chatId] = undefined;
-    return;
-  }
-
-  const depId = ins.data.id;
-
-  // Instrucciones dinámicas
-  let instrucciones = '';
-  if (estado[chatId] === 'INV_USDT') {
-    instrucciones =
-      'Método: USDT (BEP20)\n' +
-      `Wallet: \`${process.env.WALLET_USDT}\``;
-  } else {
-    instrucciones =
-      'Método: CUP (Tarjeta)\n' +
-      `Número de tarjeta: \`${process.env.WALLET_CUP}\``;
-  }
-
-  await ctx.reply(
-    '✅ Depósito creado (pendiente).\n\n' +
-    `ID: ${depId}\n` +
-    `Monto: $${monto.toFixed(2)} ${estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'}\n` +
-    `${instrucciones}\n\n` +
-    '• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n' +
-    '• Cuando el admin confirme la recepción, tu inversión será acreditada.',
-    { parse_mode: 'Markdown' }
-  );
-
-  estado[chatId] = undefined;  // IMPORTANTÍSIMO
-  return;                      // para no caer al flujo de RETIRAR
-}
-    // ========= RETIRAR =========
-    if (estado[chatId] === 'RET') {
-      const monto = Number(txt.replace(',', '.'));
-      if (isNaN(monto) || monto <= 0) {
-        await ctx.reply('Monto inválido. Intenta de nuevo.');
-        return;
-      }
-
-      await asegurarUsuario(chatId);
-      const car = await carteraDe(chatId);
-      const disp = Number(car.saldo || 0);
-      const totalDebitar = monto + RETIRO_FEE_USDT;
-
-      if (totalDebitar > disp) {
-        await ctx.reply(
-          'Saldo insuficiente. Tu disponible es ' + disp.toFixed(2) + ' USDT ' +
-          'y se necesita ' + totalDebitar.toFixed(2) + ' USDT (monto + fee).'
-        );
-        return;
-      }
-
-      // Debitar saldo y crear retiro
-      await actualizarCartera(chatId, { saldo: disp - totalDebitar });
-
-      const insR = await supabase.from('retiros').insert([{
-        telegram_id: chatId,
-        monto: monto,
-        estado: 'pendiente'
-      }]).select('id').single();
-
-      await ctx.reply(
-        'Retiro solicitado por ' + monto.toFixed(2) + ' USDT.\n' +
-        'Fee descontado: ' + RETIRO_FEE_USDT.toFixed(2) + ' USDT.\n' +
-        'Estado: pendiente.'
-      );
-
-      estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
-
-      // (opcional) aviso admin/grupo
-      if (insR && insR.data) {
-        const rid = insR.data.id;
-        const avisoR =
-          '📤 Nuevo RETIRO pendiente\n' +
-          `ID: #${rid}\n` +
-          `User: ${chatId}\n` +
-          `Monto: $${monto.toFixed(2)} USDT`;
-        try {
-          await avisarAdmin(avisoR, { reply_markup: kbRet(rid).reply_markup });
-        } catch (e3) {
-          console.log('No pude avisar al admin/grupo:', e3);
-        }
-      }
-
+    if (isNaN(monto) || monto <= 0) {
+      await ctx.reply('Monto inválido. Intenta de nuevo.');
       return;
     }
 
-    // Si llega texto que no corresponde a un estado, no hacer nada especial
+    // Mínimos por método
+    if (st === 'INV_USDT' && monto < MIN_INVERSION) {
+      await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
+      return;
+    }
+    if (st === 'INV_CUP' && monto < 500) {
+      await ctx.reply('El mínimo de inversión es 500 CUP.');
+      return;
+    }
+
+    // Asegura usuario
+    await asegurarUsuario(chatId);
+
+    // Guardar depósito
+    const ins = await supabase.from('depositos').insert([{
+      telegram_id: chatId,
+      monto,
+      metodo: (st === 'INV_USDT' ? 'USDT' : 'CUP'),
+      estado: 'pendiente'
+    }]).select('id').single();
+
+    if (ins.error) {
+      console.log(ins.error);
+      await ctx.reply('No se pudo crear el depósito. Intenta nuevamente.');
+      estado[chatId] = undefined;
+      return;
+    }
+
+    const depId = ins.data.id;
+
+    // Instrucciones dinámicas
+    let instrucciones = '';
+    if (st === 'INV_USDT') {
+      instrucciones =
+        'Método: USDT (BEP20)\n' +
+        `Wallet: \`${process.env.WALLET_USDT}\``;
+    } else {
+      instrucciones =
+        'Método: CUP (Tarjeta)\n' +
+        `Número de tarjeta: \`${process.env.WALLET_CUP}\``;
+    }
+
+    // Mensaje al usuario
+    await ctx.reply(
+      '✅ Depósito creado (pendiente).\n\n' +
+      `ID: #${depId}\n` +
+      `Monto: $${monto.toFixed(2)} ${st === 'INV_USDT' ? 'USDT' : 'CUP'}\n` +
+      `${instrucciones}\n\n` +
+      '• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n' +
+      '• Cuando el admin confirme la recepción, tu inversión será acreditada.',
+      { parse_mode: 'Markdown' }
+    );
+
+    // Aviso al admin/grupo (opcional; usa tu helper si ya lo tienes)
+    try {
+      const aviso =
+        '🧾 Nuevo DEPÓSITO pendiente\n' +
+        `ID: #${depId}\n` +
+        `User: ${chatId}\n` +
+        `Monto: $${monto.toFixed(2)}\n` +
+        `Método: ${st === 'INV_USDT' ? 'USDT (BEP20)' : 'CUP (tarjeta)'}\n` +
+        'Hash/Foto: …';
+      await avisarAdmin(aviso);
+    } catch (e2) {
+      console.log('No pude avisar al admin/grupo:', e2.message || e2);
+    }
+
+    // Muy importante: limpiar estado para no caer en otros flujos
+    estado[chatId] = undefined;
     return;
 
   } catch (e) {
@@ -849,6 +814,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
