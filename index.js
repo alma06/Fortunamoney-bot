@@ -354,7 +354,6 @@ bot.action('inv:cup', async (ctx) => {
 });
 
 bot.on('text', async (ctx) => {
-bot.on('text', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     const txt = (ctx.message.text || '').trim();
@@ -794,6 +793,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
