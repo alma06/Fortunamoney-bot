@@ -516,8 +516,8 @@ if (st === 'INV_CUP' && monto < 500) {
     : ``) +
   `${
     ${
-  moneda === 'USDT'
-    ? `Método: USDT (BEP20)\nWallet: \`${process.env.WALLET_USDT}\`\n`
+  ...
+     `Método: USDT (BEP20)\nWallet: \`${process.env.WALLET_USDT}\`\n`
     : `Método: CUP (Tarjeta)\nNúmero de tarjeta: \`${process.env.WALLET_CUP}\`\n`
 }
   `• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n` +
@@ -1039,6 +1039,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
