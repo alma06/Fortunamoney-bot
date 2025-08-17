@@ -360,66 +360,68 @@ bot.on('text', async (ctx) => {
     const txt = (ctx.message.text || '').trim();
     if (txt.startsWith('/')) return; // no comerse comandos
 
-    // ======= INVERTIR (ingreso de monto, tras elegir método) =======
-    if (estado[chatId] === 'INV_USDT' || estado[chatId] === 'INV_CUP') {
-      const monto = Number(txt.replace(',', '.'));
-      if (isNaN(monto) || monto <= 0) {
-        await ctx.reply('Monto inválido. Intenta de nuevo.');
-        return;
-      }
-
-      // Validar mínimo según el método
-      if (estado[chatId] === 'INV_USDT' && monto < MIN_INVERSION) {
-        await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
-        return;
-      }
-
-      if (estado[chatId] === 'INV_CUP' && monto < 500) {
-        await ctx.reply('El mínimo de inversión es 500 CUP.');
-        return;
-      }
-
-      await asegurarUsuario(chatId);
-
-      // Guardar depósito
-      const ins = await supabase.from('depositos').insert([{
-        telegram_id: chatId,
-        monto: monto,
-        metodo: (estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'),
-        estado: 'pendiente'
-      }]).select('id').single();
-
-      if (ins.error) {
-        console.log(ins.error);
-        await ctx.reply('No se pudo crear el depósito. Intenta nuevamente.');
-        estado[chatId] = undefined;
-        return;
-      }
-
-      const depId = ins.data.id;
-
-      // Instrucciones dinámicas (esto ya lo tienes abajo en tu código)
-      let instrucciones = '';
-      if (estado[chatId] === 'INV_USDT') {
-        instrucciones = 'Wallet: TU_WALLET_USDT';
-      } else {
-        instrucciones = 'Cuenta bancaria para CUP: XXXX';
-      }
-
-      await ctx.reply(
-        `✅ Depósito creado (pendiente).\n\n` +
-        `ID: ${depId}\n` +
-        `Monto: $${monto.toFixed(2)} ${estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'}\n` +
-        `${instrucciones}\n\n` +
-        `• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n` +
-        `• Cuando el admin confirme la recepción, tu inversión será acreditada.`
-      );
-
-      estado[chatId] = undefined; // resetear estado
-    }
-  } catch (e) {
-    console.log(e);
+// ======= INVERTIR (ingreso de monto, tras elegir método) =======
+if (estado[chatId] === 'INV_USDT' || estado[chatId] === 'INV_CUP') {
+  const monto = Number(txt.replace(',', '.'));
+  if (isNaN(monto) || monto <= 0) {
+    await ctx.reply('Monto inválido. Intenta de nuevo.');
+    return;
   }
+
+  // Mínimos por método
+  if (estado[chatId] === 'INV_USDT' && monto < MIN_INVERSION) {
+    await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
+    return;
+  }
+  if (estado[chatId] === 'INV_CUP' && monto < 500) {
+    await ctx.reply('El mínimo de inversión es 500 CUP.');
+    return;
+  }
+
+  await asegurarUsuario(chatId);
+
+  // Guardar depósito
+  const ins = await supabase.from('depositos').insert([{
+    telegram_id: chatId,
+    monto,
+    metodo: (estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'),
+    estado: 'pendiente'
+  }]).select('id').single();
+
+  if (ins.error) {
+    console.log(ins.error);
+    await ctx.reply('No se pudo crear el depósito. Intenta nuevamente.');
+    estado[chatId] = undefined;
+    return;
+  }
+
+  const depId = ins.data.id;
+
+  // Instrucciones dinámicas
+  let instrucciones = '';
+  if (estado[chatId] === 'INV_USDT') {
+    instrucciones =
+      'Método: USDT (BEP20)\n' +
+      `Wallet: \`${process.env.WALLET_USDT}\``;
+  } else {
+    instrucciones =
+      'Método: CUP (Tarjeta)\n' +
+      `Número de tarjeta: \`${process.env.WALLET_CUP}\``;
+  }
+
+  await ctx.reply(
+    '✅ Depósito creado (pendiente).\n\n' +
+    `ID: ${depId}\n` +
+    `Monto: $${monto.toFixed(2)} ${estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'}\n` +
+    `${instrucciones}\n\n` +
+    '• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n' +
+    '• Cuando el admin confirme la recepción, tu inversión será acreditada.',
+    { parse_mode: 'Markdown' }
+  );
+
+  estado[chatId] = undefined;  // IMPORTANTÍSIMO
+  return;                      // para no caer al flujo de RETIRAR
+}
     // ========= RETIRAR =========
     if (estado[chatId] === 'RET') {
       const monto = Number(txt.replace(',', '.'));
@@ -792,6 +794,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
