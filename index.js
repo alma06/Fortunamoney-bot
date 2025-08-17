@@ -438,6 +438,114 @@ bot.on('text', async (ctx) => {
         estado: 'pendiente'
       }]).select('id').single();
 
+// ==== Texto: flujos de invertir y retirar ====
+bot.on('text', async (ctx) => {
+  try {
+    const chatId = ctx.from.id;
+    const txt = (ctx.message.text || '').trim();
+    if (txt.startsWith('/')) return; // no comerse comandos
+
+    // ========= INVERTIR (ingreso de monto, tras elegir método) =========
+    if (estado[chatId] === 'INV_USDT' || estado[chatId] === 'INV_CUP') {
+      const monto = Number(txt.replace(',', '.'));
+      if (isNaN(monto) || monto <= 0) {
+        await ctx.reply('Monto inválido. Intenta de nuevo.');
+        return;
+      }
+      if (estado[chatId] === 'INV_USDT' && monto < MIN_INVERSION) {
+        await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
+        return;
+      }
+
+      await asegurarUsuario(chatId);
+
+      // Guardar depósito
+      const ins = await supabase.from('depositos').insert([{
+        telegram_id: chatId,
+        monto: monto,
+        metodo: (estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'),
+        estado: 'pendiente'
+      }]).select('id').single();
+
+      if (ins.error) {
+        console.log(ins.error);
+        await ctx.reply('No se pudo crear el depósito. Intenta nuevamente.');
+        estado[chatId] = undefined;
+        return;
+      }
+
+      const depId = ins.data.id;
+
+      // Instrucciones dinámicas
+      let instrucciones = '';
+      if (estado[chatId] === 'INV_USDT') {
+        instrucciones =
+`Método: USDT (BEP20)
+Wallet: \`${process.env.WALLET_USDT}\``;
+      } else {
+        instrucciones =
+`Método: CUP (Tarjeta)
+Número de tarjeta: \`${process.env.WALLET_CUP}\``;
+      }
+
+      await ctx.reply(
+        '✅ Depósito creado (pendiente).\n\n' +
+        `ID: \`${depId}\`\n` +
+        `Monto: $${monto.toFixed(2)} ${estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'}\n` +
+        `${instrucciones}\n\n` +
+        '• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n' +
+        '• Cuando el admin confirme la recepción, tu inversión será acreditada.',
+        { parse_mode: 'Markdown' }
+      );
+
+      // (opcional) Aviso a admin/grupo
+      try {
+        const aviso =
+          '📥 Nuevo DEPÓSITO pendiente\n' +
+          `ID: #${depId}\n` +
+          `User: ${chatId}\n` +
+          `Monto: $${monto.toFixed(2)}\n` +
+          `Método: ${(estado[chatId] === 'INV_USDT') ? 'USDT (BEP20)' : 'CUP (tarjeta)'}\n` +
+          'Hash/Foto: …';
+        await avisarAdmin(aviso);
+      } catch (e2) {
+        console.log('No pude avisar al admin/grupo:', e2.message || e2);
+      }
+
+      estado[chatId] = undefined;
+      return;
+    }
+
+    // ========= RETIRAR =========
+    if (estado[chatId] === 'RET') {
+      const monto = Number(txt.replace(',', '.'));
+      if (isNaN(monto) || monto <= 0) {
+        await ctx.reply('Monto inválido. Intenta de nuevo.');
+        return;
+      }
+
+      await asegurarUsuario(chatId);
+      const car = await carteraDe(chatId);
+      const disp = Number(car.saldo || 0);
+      const totalDebitar = monto + RETIRO_FEE_USDT;
+
+      if (totalDebitar > disp) {
+        await ctx.reply(
+          'Saldo insuficiente. Tu disponible es ' + disp.toFixed(2) + ' USDT ' +
+          'y se necesita ' + totalDebitar.toFixed(2) + ' USDT (monto + fee).'
+        );
+        return;
+      }
+
+      // Debitar saldo y crear retiro
+      await actualizarCartera(chatId, { saldo: disp - totalDebitar });
+
+      const insR = await supabase.from('retiros').insert([{
+        telegram_id: chatId,
+        monto: monto,
+        estado: 'pendiente'
+      }]).select('id').single();
+
       await ctx.reply(
         'Retiro solicitado por ' + monto.toFixed(2) + ' USDT.\n' +
         'Fee descontado: ' + RETIRO_FEE_USDT.toFixed(2) + ' USDT.\n' +
@@ -445,32 +553,34 @@ bot.on('text', async (ctx) => {
       );
 
       estado[chatId] = undefined;
-await ctx.reply('Menú:', menu());
+      await ctx.reply('Menú:', menu());
 
-// (opcional) Aviso admin/grupo
-if (insR && insR.data) {
-  const rid = insR.data.id;
-  const avisoR =
-    '🆕 Nuevo RETIRO pendiente\n' +
-    'ID: #' + rid + '\n' +
-    'User: ' + chatId + '\n' +
-    'Monto: $' + monto.toFixed(2) + ' USDT';
+      // (opcional) aviso admin/grupo
+      if (insR && insR.data) {
+        const rid = insR.data.id;
+        const avisoR =
+          '📤 Nuevo RETIRO pendiente\n' +
+          `ID: #${rid}\n` +
+          `User: ${chatId}\n` +
+          `Monto: $${monto.toFixed(2)} USDT`;
+        try {
+          await avisarAdmin(avisoR, { reply_markup: kbRet(rid).reply_markup });
+        } catch (e3) {
+          console.log('No pude avisar al admin/grupo:', e3);
+        }
+      }
 
-  try {
-    await avisarAdmin(avisoR, { reply_markup: kbRet(rid).reply_markup });
-  } catch (e3) {
-    console.log('No pude avisar al admin/grupo:', e3);
+      return;
+    }
+
+    // Si llega texto que no corresponde a un estado, no hacer nada especial
+    return;
+
+  } catch (e) {
+    console.log(e);
+    try { await ctx.reply('Ocurrió un error.'); } catch {}
   }
-}
-
-return;                  // <-- salimos del handler normal
-
-} catch (e) {            // <-- único catch que cierra el try principal del handler
-  console.log(e);
-  try { await ctx.reply('Ocurrió un error.'); } catch {}
-}
-
-});                      // <-- FIN del bot.on('text')
+});
 
 
 // Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
@@ -778,6 +888,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
