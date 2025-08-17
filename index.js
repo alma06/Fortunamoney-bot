@@ -249,27 +249,30 @@ bot.hears('Invertir', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     await asegurarUsuario(chatId);
-    estado[chatId] = 'INV';
-    // Primero elige moneda
     await ctx.reply(
-      'Elige con qué vas a invertir:',
-      kbMoneda()
+      'Elige método de inversión:',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('USDT (BEP20)', 'curr:USDT')],
+        [Markup.button.callback('CUP (tarjeta)', 'curr:CUP')],
+      ])
     );
   } catch (e) { console.log(e); }
 });
 
 bot.hears('Retirar', async (ctx) => {
-    try {
-        const chatId = ctx.from.id;
-        await asegurarUsuario(chatId);
-        const car = await carteraDe(chatId);
-        await ctx.reply(
-            'Tu saldo disponible es: ' + Number(car.saldo || 0).toFixed(2) + ' USDT\n' +
-            'Fee de retiro: ' + RETIRO_FEE_USDT + ' USDT (se descuenta además del monto solicitado)\n' +
-            'Escribe el monto a retirar (solo número, ejemplo: 25.00)'
-        );
-        estado[chatId] = 'RET';
-    } catch (e) { console.log(e); }
+  try {
+    const chatId = ctx.from.id;
+    await asegurarUsuario(chatId);
+    const car = await carteraDe(chatId);
+
+    await ctx.reply(
+      'Tu saldo disponible es: ' + Number(car.saldo || 0).toFixed(2) + ' USDT\n' +
+      'Fee de retiro: ' + RETIRO_FEE_USDT + ' USDT (se descuenta además del monto solicitado).\n' +
+      'Escribe el monto a retirar (solo número, ej: 25.00)'
+    );
+
+    estado[chatId] = 'RET';               // <-- IMPORTANTE
+  } catch (e) { console.log(e); }
 });
 
 bot.hears('Saldo', async (ctx) => {
@@ -987,6 +990,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
