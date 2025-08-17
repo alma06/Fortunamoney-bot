@@ -531,9 +531,11 @@ app.listen(PORT, async () => {
   console.log('Bot lanzado.');
 });
 
-// Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+}   // <--- ESTA ES LA QUE FALTABA
+
 
 
 
