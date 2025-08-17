@@ -330,21 +330,20 @@ bot.command('pagarhoy', async (ctx) => {
   await ctx.reply('Pago diario ejecutado. Usuarios pagados: ' + n);
 });
 
-// Texto (captura flujos de invertir/retirar)
+// ===== Texto (captura flujos de invertir/retirar) =====
 bot.on('text', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     const txt = (ctx.message.text || '').trim();
     if (txt.startsWith('/')) return; // no comerse comandos
 
-    // ============ INVERTIR: ingreso de monto (tras elegir método) ============
+    // ========== INVERTIR: ingreso de monto (tras elegir método) ==========
     if (estado[chatId] === 'INV_USDT' || estado[chatId] === 'INV_CUP') {
       const monto = Number(txt.replace(',', '.'));
       if (isNaN(monto) || monto <= 0) {
         await ctx.reply('Monto inválido. Intenta de nuevo.');
         return;
       }
-
       if (estado[chatId] === 'INV_USDT' && monto < MIN_INVERSION) {
         await ctx.reply('El mínimo de inversión es ' + MIN_INVERSION + ' USDT.');
         return;
@@ -352,7 +351,7 @@ bot.on('text', async (ctx) => {
 
       await asegurarUsuario(chatId);
 
-      // Guardamos el depósito (agrego "metodo" para distinguir, no rompe tu tabla si la columna existe; si no existe, quítala)
+      // guardamos el depósito (agrego "metodo" para distinguir; si tu tabla no lo tiene, se ignora)
       const ins = await supabase.from('depositos').insert([{
         telegram_id: chatId,
         monto: monto,
@@ -369,43 +368,47 @@ bot.on('text', async (ctx) => {
 
       const depId = ins.data.id;
 
+      // instrucciones dinámicas según método
       let instrucciones = '';
       if (estado[chatId] === 'INV_USDT') {
         instrucciones =
-          `Método: USDT (BEP20)\n` +
+          'Método: USDT (BEP20)\n' +
           `Wallet: \`${process.env.WALLET_USDT}\``;
       } else {
         instrucciones =
-          `Método: CUP (Tarjeta)\n` +
+          'Método: CUP (Tarjeta)\n' +
           `Número de tarjeta: \`${process.env.WALLET_CUP}\``;
       }
 
       await ctx.reply(
-        `✅ Depósito creado (pendiente).\n\n` +
-        `ID: ${depId}\n` +
-        `Monto: ${monto.toFixed(2)} ${estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'}\n` +
+        '✅ Depósito creado (pendiente).\n\n' +
+        `ID: \`${depId}\`\n` +
+        `Monto: $${monto.toFixed(2)} ${estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP'}\n` +
         `${instrucciones}\n\n` +
-        `Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n` +
-        `Cuando el admin confirme la recepción, tu inversión será acreditada.`,
+        '• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n' +
+        '• Cuando el admin confirme la recepción, tu inversión será acreditada.',
         { parse_mode: 'Markdown' }
       );
 
-      // Aviso al admin/grupo (opcional, si ya lo tienes no dupliques)
+      // Aviso al admin/grupo (opcional; si ya lo tienes en otro lado, no dupliques)
       try {
-        const aviso = 'Nuevo DEPÓSITO pendiente\n' +
-          'ID: ' + depId + '\n' +
-          'User: ' + chatId + '\n' +
-          'Monto: ' + monto.toFixed(2) + ' ' + (estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP') + '\n' +
+        const aviso =
+          '📥 Nuevo DEPÓSITO pendiente\n' +
+          `ID: ${depId}\n` +
+          `User: ${chatId}\n` +
+          `Monto: ${monto.toFixed(2)} ` + (estado[chatId] === 'INV_USDT' ? 'USDT' : 'CUP') + '\n' +
           'Método: ' + (estado[chatId] === 'INV_USDT' ? 'USDT (BEP20)' : 'CUP (tarjeta)') + '\n' +
           'Hash/Foto: -';
         await avisarAdmin(aviso);
-      } catch (e) { console.log('No pude avisar al admin/grupo:', e?.message || e); }
+      } catch (e2) {
+        console.log('No pude avisar al admin/grupo:', e2.message || e2);
+      }
 
       estado[chatId] = undefined;
       return;
     }
 
-    // ======================= RETIRAR (tu flujo existente) =======================
+    // ========== RETIRAR (tu flujo existente) ==========
     if (estado[chatId] === 'RET') {
       const monto = Number(txt.replace(',', '.'));
       if (isNaN(monto) || monto <= 0) {
@@ -420,8 +423,8 @@ bot.on('text', async (ctx) => {
 
       if (totalDebitar > disp) {
         await ctx.reply(
-          'Saldo insuficiente. Tu disponible es ' + disp.toFixed(2) + ' USDT y se necesita ' +
-          totalDebitar.toFixed(2) + ' USDT (monto + fee).'
+          'Saldo insuficiente. Tu disponible es ' + disp.toFixed(2) + ' USDT ' +
+          'y se necesita ' + totalDebitar.toFixed(2) + ' USDT (monto + fee).'
         );
         return;
       }
@@ -444,21 +447,24 @@ bot.on('text', async (ctx) => {
       estado[chatId] = undefined;
       await ctx.reply('Menú:', menu());
 
-      // Aviso al admin/grupo (opcional, si ya lo tienes no dupliques)
+      // Aviso al admin/grupo (opcional; si ya lo tienes en otro lado, no dupliques)
       if (!insR?.data) return;
       const rid = insR.data.id;
-      const avisoR = 'Nuevo RETIRO pendiente\n' +
-        'ID: ' + rid + '\n' +
-        'User: ' + chatId + '\n' +
-        'Monto: ' + monto.toFixed(2) + ' USDT';
+      const avisoR =
+        '🆕 Nuevo RETIRO pendiente\n' +
+        `ID: ${rid}\n` +
+        `User: ${chatId}\n` +
+        `Monto: ${monto.toFixed(2)} USDT`;
       try {
         await avisarAdmin(avisoR, { reply_markup: kbRet(rid).reply_markup });
-      } catch (e) { console.log('No pude avisar al admin/grupo:', e); }
-
+      } catch (e3) {
+        console.log('No pude avisar al admin/grupo:', e3);
+      }
       return;
     }
 
     // Si llega texto que no corresponde a un estado, no hacer nada
+    return;
   } catch (e) {
     console.log(e);
     try { await ctx.reply('Ocurrió un error.'); } catch {}
@@ -842,6 +848,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
