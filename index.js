@@ -332,7 +332,7 @@ if (st === 'RET') {
   console.log('Error en handler de texto:', e);
   try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
 }
-}); // <-- ESTA LÍNEA ES LA QUE FALTABA
+});
 // ======== Foto: guarda comprobante en depósito pendiente más reciente ========
 bot.on('photo', async (ctx) => {
   try {
@@ -532,6 +532,7 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
