@@ -391,51 +391,67 @@ bot.command('tx', async (ctx) => {
   } catch (e) { console.log(e); }
 });
 
-// ======== ADMIN: aprobar/rechazar depósito ========
+// ======== ADMIN: aprobar depósito (recalcula BRUTO) ========
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
   try {
+    // Solo admin o el grupo admin
     if (ctx.from.id !== ADMIN_ID && ctx.chat?.id !== ADMIN_GROUP_ID) return;
+
     const depId = Number(ctx.match[1]);
 
-    const { data: d } = await supabase.from('depositos').select('*').eq('id', depId).single();
-    if (!d) return ctx.answerCbQuery('No encontrado');
-    if (d.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
+    const { data: d, error } = await supabase
+      .from('depositos')
+      .select('*')
+      .eq('id', depId)
+      .single();
 
-    // acreditar
+    if (error || !d) {
+      return ctx.answerCbQuery('No encontrado');
+    }
+    if (d.estado !== 'pendiente') {
+      return ctx.answerCbQuery('Ya procesado');
+    }
+
+    // Acreditar: saldo + principal y recalcular bruto
+    const carPrev = await carteraDe(d.telegram_id);
+    const nuevoPrincipal = numero(carPrev.principal) + numero(d.monto);
+    const nuevoSaldo     = numero(carPrev.saldo)     + numero(d.monto);
+
+    // BRUTO base 500% = principal / 0.9 (tu fórmula)
+    const nuevoBruto = nuevoPrincipal / 0.9;
+
     await actualizarCartera(d.telegram_id, {
-      saldo: numero((await carteraDe(d.telegram_id)).saldo) + numero(d.monto),
-      principal: numero((await carteraDe(d.telegram_id)).principal) + numero(d.monto),
+      principal: nuevoPrincipal,
+      saldo: nuevoSaldo,
+      bruto: nuevoBruto
     });
 
-    await supabase.from('depositos')
+    // Marcar depósito como aprobado
+    await supabase
+      .from('depositos')
       .update({ estado: 'aprobado', aprobado_en: new Date().toISOString() })
       .eq('id', depId);
 
-    await bot.telegram.sendMessage(
-      d.telegram_id,
-      `Pago acreditado: ${numero(d.monto).toFixed(2)} USDT\nDisponible: ${(numero((await carteraDe(d.telegram_id)).saldo)).toFixed(2)} USDT`
-    );
+    // Aviso al usuario
+    try {
+      await bot.telegram.sendMessage(
+        d.telegram_id,
+        `Depósito aprobado: ${numero(d.monto).toFixed(2)} USDT.\n` +
+        `Principal: ${nuevoPrincipal.toFixed(2)} USDT\n` +
+        `Disponible: ${nuevoSaldo.toFixed(2)} USDT\n` +
+        `Bruto (base 500%): ${nuevoBruto.toFixed(2)} USDT`
+      );
+    } catch (eMsg) {
+      console.log('No se pudo avisar al usuario:', eMsg?.message || eMsg);
+    }
 
+    // Limpiar botones y confirmar en el chat admin
     await ctx.editMessageReplyMarkup();
     await ctx.reply(`Depósito #${depId} aprobado.`);
-  } catch (e) { console.log(e); }
+  } catch (e) {
+    console.log(e);
+  }
 });
-
-bot.action(/dep:reject:(\d+)/, async (ctx) => {
-  try {
-    if (ctx.from.id !== ADMIN_ID && ctx.chat?.id !== ADMIN_GROUP_ID) return;
-    const depId = Number(ctx.match[1]);
-    const { data: d } = await supabase.from('depositos').select('*').eq('id', depId).single();
-    if (!d) return ctx.answerCbQuery('No encontrado');
-    if (d.estado !== 'pendiente') return ctx.answerCbQuery('Ya procesado');
-
-    await supabase.from('depositos').update({ estado: 'rechazado' }).eq('id', depId);
-    await bot.telegram.sendMessage(d.telegram_id, `Tu depósito #${depId} fue RECHAZADO.`);
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply(`Depósito #${depId} rechazado.`);
-  } catch (e) { console.log(e); }
-});
-
 // ======== ADMIN: aprobar/rechazar retiro ========
 bot.action(/ret:approve:(\d+)/, async (ctx) => {
   try {
@@ -495,3 +511,4 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
