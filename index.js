@@ -431,177 +431,214 @@ bot.action('curr:CUP', async (ctx) => {
   } catch (e) { console.log(e); }
 });
 
-// ================= HANDLER ÚNICO DE TEXTO =================
+// ============ HANDLER ÚNICO DE TEXTO ============
 bot.on('text', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     const txtRaw = (ctx.message.text || '').trim();
+    if (txtRaw.startsWith('/')) return; // no comerse comandos
 
-    // Evitar comerse comandos tipo /start
-    if (txtRaw.startsWith('/')) return;
+    // Debemos estar esperando un monto
+    const st = estado[chatId]; // 'INV_USDT' | 'INV_CUP' | 'RET' | undefined
+    if (!['INV_USDT', 'INV_CUP', 'RET'].includes(st || '')) return;
 
-    const st = estado[chatId]; // puede ser: 'INV_USDT', 'INV_CUP', 'RET' o undefined
-    if (!['INV_USDT', 'INV_CUP', 'RET'].includes(st)) return;
-
-    // --------------------------------------------------------
-    // RETIRAR
-    // --------------------------------------------------------
-    if (st === 'RET') {
-      try {
-        const fee = Number(process.env.RETIRO_FEE_USDT || 1);
-        const monto = Number(txtRaw.replace(',', '.'));
-
-        if (isNaN(monto) || monto <= 0) {
-          await ctx.reply('Monto inválido. Intenta de nuevo.');
-          return;
-        }
-
-        // Leer saldo del usuario
-        const { data: user } = await supabase
-          .from('usuarios')
-          .select('balance')
-          .eq('telegram_id', chatId)
-          .maybeSingle();
-
-        if (!user || user.balance < monto + fee) {
-          await ctx.reply('Saldo insuficiente para este retiro.');
-          estado[chatId] = undefined;
-          return;
-        }
-
-        // Crear solicitud de retiro en DB
-        const { data: ins, error: errIns } = await supabase
-          .from('retiros')
-          .insert({
-            telegram_id: chatId,
-            monto,
-            fee,
-            estado: 'pendiente'
-          })
-          .select('id')
-          .single();
-
-        if (errIns) {
-          console.log('Error insert retiro:', errIns);
-          await ctx.reply('Error guardando el retiro. Intenta nuevamente.');
-          return;
-        }
-
-        const retId = ins.id;
-
-        await ctx.reply(
-          ✅ Retiro creado (pendiente).\n\nID: ${retId}\nMonto: ${monto} USDT\nFee: ${fee} USDT\n\nEl admin procesará tu pago en CUP.
-        );
-
-        // Avisar al admin
-        await bot.telegram.sendMessage(
-          ADMIN_GROUP_ID,
-          📤 Solicitud de RETIRO\n\nID: ${retId}\nUser: ${chatId}\nMonto: ${monto} USDT\nFee: ${fee} USDT,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: 'Aprobar', callback_data: 'ret:approve:' + retId }],
-                [{ text: 'Rechazar', callback_data: 'ret:reject:' + retId }]
-              ]
-            }
-          }
-        );
-
-        estado[chatId] = undefined;
-      } catch (e) {
-        console.log('Error en retiro:', e);
-        await ctx.reply('Ocurrió un error procesando tu retiro.');
-      }
+    // Normaliza número (permite coma o punto)
+    const txt = txtRaw.replace(',', '.');
+    const monto = Number(txt);
+    if (isNaN(monto) || monto <= 0) {
+      await ctx.reply('Monto inválido. Intenta de nuevo.');
       return;
     }
 
-    // --------------------------------------------------------
-    // INVERTIR (USDT o CUP)
-    // --------------------------------------------------------
+    // ================== INVERTIR (USDT / CUP) ==================
     if (st === 'INV_USDT' || st === 'INV_CUP') {
+
+      // Mínimos por método
+      if (st === 'INV_USDT' && monto < MIN_INVERSION) {
+        await ctx.reply(El mínimo de inversión es ${MIN_INVERSION} USDT.);
+        return;
+      }
+      if (st === 'INV_CUP' && monto < 500) {
+        await ctx.reply('El mínimo de inversión es 500 CUP.');
+        return;
+      }
+
+      await asegurarUsuario(chatId);
+
+      let montoFinal = monto;           // lo que guardaremos en USDT
+      let moneda = (st === 'INV_USDT') ? 'USDT' : 'CUP';
+      let tasa_usdt = null;             // si viene en CUP, guardamos tasa fija
+      let monto_origen = monto;         // lo que escribió el usuario
+
+      // Conversión CUP -> USDT (tasa fija)
+      if (st === 'INV_CUP') {
+        tasa_usdt = Number(process.env.CUP_USDT_RATE || 400);
+        montoFinal = monto / tasa_usdt; // equivalente en USDT
+      }
+
+      // Guardar depósito (en USDT equivalentes)
+      const ins = await supabase.from('depositos').insert([{
+        telegram_id: chatId,
+        monto: montoFinal,        // SIEMPRE en USDT
+        moneda,                   // 'USDT' o 'CUP' (origen)
+        monto_origen,             // número que escribió el usuario
+        tasa_usdt,                // null si fue USDT directo
+        estado: 'pendiente'
+      }]).select('id').single();
+
+      if (ins.error) {
+        console.log('Error insert depósito:', ins.error);
+        await ctx.reply('No se pudo crear el depósito. Intenta nuevamente.');
+        return;
+      }
+
+      const depId = ins.data.id;
+
+      // Instrucciones dinámicas
+      let instrucciones = '';
+      if (moneda === 'USDT') {
+        instrucciones =
+          • Método: USDT (BEP20)\n +
+          • Wallet: \${process.env.WALLET_USDT || '—'}\``;
+      } else {
+        instrucciones =
+          • Método: CUP (Tarjeta)\n +
+          • Número de tarjeta: \${process.env.WALLET_CUP || '—'}\``;
+      }
+
+      // Respuesta al usuario
+      await ctx.reply(
+        ✅ Depósito creado (pendiente).\n\n +
+        ID: ${depId}\n +
+        Monto: ${monto_origen.toFixed(2)} ${moneda}\n +
+        (moneda === 'CUP' ? Equivalente: ${montoFinal.toFixed(2)} USDT\n : '') +
+        ${instrucciones}\n\n +
+        • Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n +
+        • Cuando el admin confirme la recepción, tu inversión será acreditada.
+      );
+
+      // Aviso al grupo admin con botones
       try {
-        const monto = Number(txtRaw.replace(',', '.'));
-
-        if (isNaN(monto) || monto <= 0) {
-          await ctx.reply('Monto inválido. Intenta de nuevo.');
-          return;
-        }
-
-        if (st === 'INV_USDT' && monto < MIN_INVERSION) {
-          await ctx.reply(El mínimo de inversión es ${MIN_INVERSION} USDT.);
-          return;
-        }
-        if (st === 'INV_CUP' && monto < 500) {
-          await ctx.reply('El mínimo de inversión es 500 CUP.');
-          return;
-        }
-
-        const moneda = st === 'INV_USDT' ? 'USDT' : 'CUP';
-
-        // Crear registro de depósito
-        const { data: ins, error } = await supabase
-          .from('depositos')
-          .insert({
-            telegram_id: chatId,
-            monto_origen: monto,
-            moneda,
-            estado: 'pendiente'
-          })
-          .select('id')
-          .single();
-
-        if (error) {
-          console.log('Error insert depósito:', error);
-          await ctx.reply('Error guardando el depósito. Intenta nuevamente.');
-          return;
-        }
-
-        const depId = ins.id;
-
-        // Respuesta al usuario
-        if (moneda === 'USDT') {
-          await ctx.reply(
-            `✅ Depósito creado (pendiente).\n\nID: ${depId}\nMonto: ${monto.toFixed(
-              2
-            )} USDT\n\nEnvía el hash de la transacción a este chat.`
-          );
-        } else {
-          await ctx.reply(
-            `✅ Depósito creado (pendiente).\n\nID: ${depId}\nMonto: ${monto.toFixed(
-              2
-            )} CUP\nMétodo: CUP (Tarjeta)\nNúmero de tarjeta: ${process.env.TARJETA_CUP}\n\nEnvía una foto/captura del pago en este chat.`
-          );
-        }
-
-        // Aviso al admin
         await bot.telegram.sendMessage(
           ADMIN_GROUP_ID,
-          📥 Nuevo DEPÓSITO pendiente\n\nID: ${depId}\nUser: ${chatId}\nMonto: ${monto} ${moneda},
+          📩 Comprobante de DEPÓSITO\n +
+          ID: #${depId}\n +
+          User: ${chatId}\n +
+          Monto: ${monto_origen.toFixed(2)} ${moneda}\n +
+          (moneda === 'CUP' ? Equivalente: ${montoFinal.toFixed(2)} USDT\n : '') +
+          Usa los botones para validar.,
           {
             reply_markup: {
               inline_keyboard: [
-                [{ text: 'Aprobar', callback_data: 'dep:approve:' + depId }],
-                [{ text: 'Rechazar', callback_data: 'dep:reject:' + depId }]
+                [{ text: '✅ Aprobar',  callback_data: dep:approve:${depId} }],
+                [{ text: '❌ Rechazar', callback_data: dep:reject:${depId}  }]
               ]
             }
           }
         );
-
-        estado[chatId] = undefined;
-      } catch (e) {
-        console.log('Error en inversión:', e);
-        await ctx.reply('Ocurrió un error procesando tu inversión.');
+      } catch (e2) {
+        console.log('No pude avisar al admin/grupo (depósito):', e2.message || e2);
       }
+
+      // Limpia estado
+      estado[chatId] = undefined;
       return;
     }
+
+    // ================== RETIRAR ==================
+    if (st === 'RET') {
+      const fee = Number(process.env.RETIRO_FEE_USDT || 1);
+
+      // saldo disponible del usuario
+      const car = await carteraDe(chatId);
+      const disp = Number(car?.saldo || 0);
+
+      const totalDebitar = monto + fee;
+      if (totalDebitar > disp) {
+        await ctx.reply(
+          `Saldo insuficiente. Tu disponible es ${disp.toFixed(2)} USDT ` +
+          y se necesita ${totalDebitar.toFixed(2)} USDT (monto + fee).
+        );
+        return;
+      }
+
+      // (Opcional) aquí podrías debitar saldo ya, si tu lógica lo exige.
+      // await actualizarCartera(chatId, { saldo: disp - totalDebitar });
+
+      // Saber si el usuario prefiere CUP para que el admin lo sepa
+      let pref = null;
+      try {
+        const { data: u } = await supabase
+          .from('usuarios')
+          .select('moneda_preferida')
+          .eq('telegram_id', chatId)
+          .single();
+        pref = u?.moneda_preferida || null;
+      } catch {}
+
+      // Crear retiro
+      const insR = await supabase.from('retiros').insert([{
+        telegram_id: chatId,
+        monto: monto,
+        estado: 'pendiente'
+      }]).select('id').single();
+
+      if (insR.error) {
+        console.log('Error insert retiro:', insR.error);
+        await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
+        return;
+      }
+
+      const retId = insR.data.id;
+
+      // Mensaje al usuario
+      await ctx.reply(
+        Retiro creado (pendiente).\n\n +
+        ID: ${retId}\n +
+        Monto: ${monto.toFixed(2)} USDT\n +
+        Fee descontado: ${fee.toFixed(2)} USDT\n\n +
+        (pref === 'CUP'
+          ? El admin procesará tu pago en CUP (tasa fija).
+          : El admin procesará tu pago.)
+      );
+
+      // Aviso al grupo admin
+      try {
+        const tasa = Number(process.env.CUP_USDT_RATE || 400);
+        const cupEq = (pref === 'CUP') ? (monto * tasa) : null;
+
+        await bot.telegram.sendMessage(
+          ADMIN_GROUP_ID,
+          🟢 Nuevo RETIRO pendiente\n +
+          ID: #${retId}\n +
+          Usuario: ${chatId}\n +
+          Monto: ${monto.toFixed(2)} USDT\n +
+          Fee: ${fee.toFixed(2)} USDT\n +
+          (cupEq ? Equivalente: ${cupEq.toFixed(0)} CUP\n : ``) +
+          Preferencia: ${pref || '—'},
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '✅ Aprobar',  callback_data: ret:approve:${retId} }],
+                [{ text: '❌ Rechazar', callback_data: ret:reject:${retId}  }]
+              ]
+            }
+          }
+        );
+      } catch (err) {
+        console.log('No se pudo mandar al canal de pagos:', err?.message || err);
+      }
+
+      // Limpia estado
+      estado[chatId] = undefined;
+      return;
+    }
+
   } catch (e) {
     console.log('Error en handler de texto:', e);
-    try {
-      await ctx.reply('Ocurrió un error procesando tu mensaje.');
-    } catch {}
+    try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
   }
 });
-
 // Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
 bot.on('photo', async (ctx) => {
   try {
@@ -1002,6 +1039,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
