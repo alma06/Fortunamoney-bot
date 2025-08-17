@@ -420,8 +420,6 @@ bot.on('text', async (ctx) => {
   } catch (e) {
     console.log(e);
   }
-});
-
     // ========= RETIRAR =========
     if (estado[chatId] === 'RET') {
       const monto = Number(txt.replace(',', '.'));
@@ -794,6 +792,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
