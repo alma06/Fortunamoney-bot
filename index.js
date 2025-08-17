@@ -46,25 +46,39 @@ async function asegurarUsuario(telegram_id) {
   await supabase.from('carteras').upsert([{ telegram_id, saldo: 0, principal: 0 }], { onConflict: 'telegram_id' });
 }
 
+// Lee tolerando 'principal' o 'invertido'
 async function carteraDe(telegram_id) {
   const { data } = await supabase.from('carteras')
-    .select('saldo, principal, bruto')
+    .select('saldo, principal, invertido, bruto')
     .eq('telegram_id', telegram_id)
     .maybeSingle();
-  return data || { saldo: 0, principal: 0, bruto: 0 };
+
+  const saldo   = Number(data?.saldo ?? 0) || 0;
+  const prinRaw = (data?.principal !== undefined ? data.principal : data?.invertido);
+  const principal = Number(prinRaw ?? 0) || 0;
+  const bruto  = Number(data?.bruto ?? 0) || 0;
+
+  return { saldo, principal, bruto };
 }
 
+// Escribe en ambas columnas para cubrir ambos esquemas
 async function actualizarCartera(telegram_id, patch) {
   const cur = await carteraDe(telegram_id);
-  const upd = {
-    saldo:     patch.saldo     !== undefined ? patch.saldo     : cur.saldo,
-    principal: patch.principal !== undefined ? patch.principal : cur.principal,
-    bruto:     patch.bruto     !== undefined ? patch.bruto     : cur.bruto
-  };
-  await supabase.from('carteras').upsert([{ telegram_id, ...upd }], { onConflict: 'telegram_id' });
-}
 
-function numero(x) { return Number(x || 0) || 0; }
+  const nuevoSaldo     = (patch.saldo     !== undefined) ? patch.saldo     : cur.saldo;
+  const nuevoPrincipal = (patch.principal !== undefined) ? patch.principal : cur.principal;
+  const nuevoBruto     = (patch.bruto     !== undefined) ? patch.bruto     : cur.bruto;
+
+  const row = {
+    telegram_id,
+    saldo: nuevoSaldo,
+    principal: nuevoPrincipal,  // si existe 'principal', se actualiza
+    invertido: nuevoPrincipal,  // si existe 'invertido', también queda actualizado
+    bruto: nuevoBruto
+  };
+
+  await supabase.from('carteras').upsert([row], { onConflict: 'telegram_id' });
+}
 
 // ======== UI Básica ========
 bot.start(async (ctx) => {
@@ -511,4 +525,5 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
