@@ -508,42 +508,41 @@ if (st === 'INV_CUP' && monto < 500) {
 
       // Respuesta al usuario
       await ctx.reply(
-        ✅ Depósito creado (pendiente).\n\n +
-        ID: ${depId}\n +
-        Monto: ${monto_origen.toFixed(2)} ${moneda}\n +
-        (moneda === 'CUP' ? Equivalente: ${montoFinal.toFixed(2)} USDT\n : '') +
-        ${instrucciones}\n\n +
-        • Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n +
-        • Cuando el admin confirme la recepción, tu inversión será acreditada.
-      );
+  `✅ Depósito creado (pendiente).\n\n` +
+  `ID: ${depId}\n` +
+  `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
+  (moneda === 'CUP'
+    ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` 
+    : ``) +
+  `${
+    moneda === 'USDT'
+      ? `Método: USDT (BEP20)\nWallet: \`${process.env.WALLET_USDT}\`\n`
+      : `Método: CUP (Tarjeta)\nNúmero de tarjeta: \`${process.env.WALLET_CUP}\`\n`
+  }\n` +
+  `• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP) en este chat.\n` +
+  `• Cuando el admin confirme la recepción, tu inversión será acreditada.`
+);
 
-      // Aviso al grupo admin con botones
-      try {
-        await bot.telegram.sendMessage(
-          ADMIN_GROUP_ID,
-          📩 Comprobante de DEPÓSITO\n +
-          ID: #${depId}\n +
-          User: ${chatId}\n +
-          Monto: ${monto_origen.toFixed(2)} ${moneda}\n +
-          (moneda === 'CUP' ? Equivalente: ${montoFinal.toFixed(2)} USDT\n : '') +
-          Usa los botones para validar.,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '✅ Aprobar',  callback_data: dep:approve:${depId} }],
-                [{ text: '❌ Rechazar', callback_data: dep:reject:${depId}  }]
-              ]
-            }
-          }
-        );
-      } catch (e2) {
-        console.log('No pude avisar al admin/grupo (depósito):', e2.message || e2);
-      }
+      const adminBody =
+  `📩 Comprobante de DEPÓSITO\n` +
+  `ID: #${depId}\n` +
+  `User: ${chatId}\n` +
+  `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
+  (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : ``) +
+  `Usa los botones para validar.`;
 
-      // Limpia estado
-      estado[chatId] = undefined;
-      return;
+await bot.telegram.sendMessage(
+  ADMIN_GROUP_ID,
+  adminBody,
+  {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
+        [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}`  }]
+      ]
     }
+  }
+);
 
     // ================== RETIRAR ==================
     if (st === 'RET') {
@@ -1039,6 +1038,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
