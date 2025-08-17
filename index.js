@@ -327,13 +327,14 @@ if (st === 'RET') {
         }
       }
     );
-
+// ... catch del handler de texto ...
 } catch (e) {
   console.log('Error en handler de texto:', e);
   try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
 }
-});
-// ======== Foto: guarda comprobante en depósito pendiente más reciente ========
+}); // <-- CIERRE ÚNICO del bot.on('text', ...)
+
+/* a partir de aquí empieza el siguiente handler */
 bot.on('photo', async (ctx) => {
   try {
     const uid = ctx.from.id;
@@ -532,6 +533,7 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
