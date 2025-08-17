@@ -622,18 +622,18 @@ try {
   console.log('No pude avisar al admin/grupo (retiro):', e.message || e);
 }
 
-      // Limpia estado
-      estado[chatId] = undefined;
-      return;
-    }
+      // ---- LIMPIA ESTADO Y SALE DEL HANDLER ----
+    estado[chatId] = undefined;
+    return;
 
-} catch (e) {
+  } catch (e) {
     console.log('Error en handler de texto:', e);
     try {
       await ctx.reply('Ocurrió un error procesando tu mensaje.');
     } catch (_) {}
   }
-}); // ← este cierra el bot.on('text', ...)
+}); // <-- CIERRE ÚNICO del bot.on('text', async (ctx) => { ... })
+    
 // Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
 bot.on('photo', async (ctx) => {
   try {
@@ -1034,6 +1034,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
