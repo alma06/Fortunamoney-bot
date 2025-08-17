@@ -252,88 +252,95 @@ estado[chatId] = undefined;
 return;
 
     // ===== RETIRAR =====
-    if (st === 'RET') {
-      const fee = RETIRO_FEE_USDT;
-      const car = await carteraDe(chatId);
-      const disp = numero(car.saldo);
-      const totalDebitar = monto + fee;
+if (st === 'RET') {
+  const fee = RETIRO_FEE_USDT;
+  const car = await carteraDe(chatId);
+  const disp = numero(car.saldo);
+  const totalDebitar = monto + fee;
 
-      if (totalDebitar > disp) {
-        await ctx.reply(
-          'Saldo insuficiente.\n' +
-          `Disponible: ${disp.toFixed(2)} USDT\n` +
-          `Se necesita: ${totalDebitar.toFixed(2)} USDT (monto + fee).`
-        );
-        estado[chatId] = undefined;
-        return;
-      }
-
-      const insR = await supabase.from('retiros').insert([{
-        telegram_id: chatId,
-        monto: monto,
-        estado: 'pendiente'
-      }]).select('id').single();
-
-      if (insR.error) {
-        console.log('Error insert retiro:', insR.error);
-        await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
-        return;
-      }
-
-      const retId = insR.data.id;
-      await ctx.reply(
-        `✅ Retiro creado (pendiente).\n\n` +
-        `ID: ${retId}\n` +
-        `Monto: ${monto.toFixed(2)} USDT\n` +
-        `Fee descontado: ${fee.toFixed(2)} USDT\n\n` +
-        `Si tu preferencia es CUP, el admin procesará tu pago en CUP (tasa fija).`,
-        menu()
-      );
-
-      // Aviso al admin (mostrar equivalente en CUP si el usuario prefiere CUP)
-      let pref = null;
-      try {
-        const { data: u } = await supabase.from('usuarios').select('moneda_preferida').eq('telegram_id', chatId).single();
-        pref = u?.moneda_preferida || null;
-      } catch {}
-
-      const tasa = CUP_USDT_RATE;
-      const cupEq = (pref === 'CUP') ? (monto * tasa) : null;
-
-      try {
-        const body =
-          `🆕 Nuevo RETIRO pendiente\n` +
-          `ID: #${retId}\n` +
-          `Usuario: ${chatId}\n` +
-          `Monto: ${monto.toFixed(2)} USDT\n` +
-          `Fee: ${fee.toFixed(2)} USDT\n` +
-          (cupEq ? `Preferencia: CUP | Equivalente: ${cupEq.toFixed(0)} CUP\n` : `Preferencia: ${pref || '--'}\n`);
-        await bot.telegram.sendMessage(
-          ADMIN_GROUP_ID,
-          body,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '✅ Aprobar retiro',  callback_data: `ret:approve:${retId}` }],
-                [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}`  }]
-              ]
-            }
-          }
-        );
-      } catch (e3) {
-        console.log('No pude avisar al admin/grupo (retiro):', e3?.message || e3);
-      }
-
-      estado[chatId] = undefined;
-      return;
-    }
-
-  } catch (e) {
-    console.log('Error en handler de texto:', e);
-    try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
+  if (totalDebitar > disp) {
+    await ctx.reply(
+      'Saldo insuficiente.\n' +
+      `Disponible: ${disp.toFixed(2)} USDT\n` +
+      `Se necesita: ${totalDebitar.toFixed(2)} USDT (monto + fee).`
+    );
+    estado[chatId] = undefined;
+    return;
   }
-});
 
+  const insR = await supabase.from('retiros').insert([{
+    telegram_id: chatId,
+    monto: monto,
+    estado: 'pendiente'
+  }]).select('id').single();
+
+  if (insR.error) {
+    console.log('Error insert retiro:', insR.error);
+    await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
+    return;
+  }
+
+  const retId = insR.data.id;
+  await ctx.reply(
+    `✅ Retiro creado (pendiente).\n\n` +
+    `ID: ${retId}\n` +
+    `Monto: ${monto.toFixed(2)} USDT\n` +
+    `Fee descontado: ${fee.toFixed(2)} USDT\n\n` +
+    `Si tu preferencia es CUP, el admin procesará tu pago en CUP (tasa fija).`,
+    menu()
+  );
+
+  // Aviso al admin (si pref. CUP, mostrar equivalente)
+  let pref = null;
+  try {
+    const { data: u } = await supabase
+      .from('usuarios')
+      .select('moneda_preferida')
+      .eq('telegram_id', chatId)
+      .single();
+    pref = u?.moneda_preferida || null;
+  } catch {}
+
+  const tasa  = CUP_USDT_RATE;
+  const cupEq = (pref === 'CUP') ? (monto * tasa) : null;
+
+  try {
+    const body =
+      `🆕 Nuevo RETIRO pendiente\n` +
+      `ID: #${retId}\n` +
+      `Usuario: ${chatId}\n` +
+      `Monto: ${monto.toFixed(2)} USDT\n` +
+      `Fee: ${fee.toFixed(2)} USDT\n` +
+      (cupEq
+        ? `Preferencia: CUP | Equivalente: ${cupEq.toFixed(0)} CUP\n`
+        : `Preferencia: ${pref || '--'}\n`);
+
+    await bot.telegram.sendMessage(
+      ADMIN_GROUP_ID,
+      body,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Aprobar retiro',  callback_data: `ret:approve:${retId}` }],
+            [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}`  }]
+          ]
+        }
+      }
+    );
+  } catch (e3) {
+    console.log('No pude avisar al admin/grupo (retiro):', e3?.message || e3);
+  }
+
+  // <- aquí termina el bloque de RET
+  estado[chatId] = undefined;
+  return;
+}
+
+// Aquí sigue el catch del handler completo:
+} catch (e) {
+  console.log('Error en handler de texto:', e);
+  try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
+}
 // ======== Foto: guarda comprobante en depósito pendiente más reciente ========
 bot.on('photo', async (ctx) => {
   try {
@@ -533,6 +540,7 @@ app.listen(PORT, async () => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
