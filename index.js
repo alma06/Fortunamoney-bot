@@ -431,7 +431,7 @@ bot.action('curr:CUP', async (ctx) => {
   } catch (e) { console.log(e); }
 });
 
-// ==== ÚNICO handler de texto (reemplaza TODO tu bot.on('text') con esto) ====
+// Handler de texto: captura MONTOS después de elegir método
 bot.on('text', async (ctx) => {
   try {
     const chatId = ctx.from.id;
@@ -439,361 +439,129 @@ bot.on('text', async (ctx) => {
     if (txtRaw.startsWith('/')) return;
 
     const st = estado[chatId];
-    console.log('[TEXT] chatId=%s estado=%s msg=%s', chatId, st, txtRaw);
-
-    // Si no está en flujo de invertir/retirar, ignorar
     if (st !== 'INV_USDT' && st !== 'INV_CUP' && st !== 'RET') return;
 
-    // Normaliza número (coma o punto)
+    // Normaliza número
     const txt = txtRaw.replace(',', '.');
     const monto = Number(txt);
+
     if (isNaN(monto) || monto <= 0) {
       await ctx.reply('Monto inválido. Intenta de nuevo.');
       return;
     }
 
-    // ------- FLUJO: DEPÓSITO USDT -------
-    if (st === 'INV_USDT') {
-      if (monto < MIN_INVERSION) {
-        await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
-        return;
-      }
-
-      await asegurarUsuario(chatId);
-
-      // Guardar SIEMPRE en USDT
-      const { data, error } = await supabase
-        .from('depositos')
-        .insert([{
-          telegram_id: chatId,
-          monto: monto,           // USDT
-          moneda: 'USDT',
-          monto_origen: monto,    // lo que escribió
-          tasa_usdt: null,        // null porque fue USDT directo
-          estado: 'pendiente'
-        }])
-        .select('id')
-        .single();
-
-      if (error) {
-        console.log('[DEP USDT] error insert:', error);
-        await ctx.reply('Error guardando el depósito.');
-        return;
-      }
-
-      const depId = data.id;
-
-      await ctx.reply(
-        `✅ Depósito creado (pendiente).\n\n` +
-        `ID: ${depId}\n` +
-        `Monto: ${monto.toFixed(2)} USDT\n` +
-        `Método: USDT (BEP20)\n\n` +
-        `• Envía el hash de la transacción (USDT) o una foto del pago.\n` +
-        `• Cuando el admin confirme, tu inversión será acreditada.\n\n` +
-        `Wallet USDT (BEP20): ${WALLET_USDT}`
-      );
-
-      // Aviso a admin/grupo (si está configurado)
-      if (ADMIN_GROUP_ID) {
-        try {
-          await bot.telegram.sendMessage(
-            ADMIN_GROUP_ID,
-            `📩 DEPÓSITO pendiente\n` +
-            `ID: #${depId}\n` +
-            `User: ${chatId}\n` +
-            `Monto: ${monto.toFixed(2)} USDT\n` +
-            `Método: USDT`,
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
-                  [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}` }]
-                ]
-              }
-            }
-          );
-        } catch (e) {
-          console.log('[DEP USDT] error avisando admin:', e);
-        }
-      }
-
-      estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
+    // Validaciones por modo
+    if (st === 'INV_USDT' && monto < MIN_INVERSION) {
+      await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
+      return;
+    }
+    if (st === 'INV_CUP' && monto < 500) {
+      await ctx.reply('El mínimo de inversión es 500 CUP.');
       return;
     }
 
-    // ------- FLUJO: DEPÓSITO CUP -------
-    if (st === 'INV_CUP') {
-      if (monto < 500) {
-        await ctx.reply('El mínimo de inversión es 500 CUP.');
-        return;
-      }
-
+    // === Invertir (USDT o CUP) ===
+    if (st === 'INV_USDT' || st === 'INV_CUP') {
       await asegurarUsuario(chatId);
 
-      const tasa = Number(process.env.CUP_USDT_RATE || 400); // fija
-      const usdtEq = monto / tasa;
+      let montoFinal = monto;              // en USDT (final)
+      const moneda   = (st === 'INV_USDT') ? 'USDT' : 'CUP';
+      let tasa_usdt  = null;               // null si USDT directo
+      const monto_origen = monto;          // lo que escribió el usuario
 
-      const { data, error } = await supabase
-        .from('depositos')
-        .insert([{
-          telegram_id: chatId,
-          monto: usdtEq,          // guardamos en USDT equivalente
-          moneda: 'CUP',
-          monto_origen: monto,    // CUP que escribió
-          tasa_usdt: tasa,        // 400 por defecto
-          estado: 'pendiente'
-        }])
-        .select('id')
-        .single();
+      if (st === 'INV_CUP') {
+        tasa_usdt  = Number(process.env.CUP_USDT_RATE || 400);
+        montoFinal = monto / tasa_usdt;    // convertir a USDT
+      }
 
-      if (error) {
-        console.log('[DEP CUP] error insert:', error);
+      const ins = await supabase.from('depositos').insert([{
+        telegram_id : chatId,
+        monto       : montoFinal,          // siempre USDT equivalente
+        moneda      : moneda,              // 'USDT' o 'CUP'
+        monto_origen: monto_origen,
+        tasa_usdt   : tasa_usdt,           // null si USDT
+        estado      : 'pendiente'
+      }]).select('id').single();
+
+      if (ins.error) {
+        console.log(ins.error);
         await ctx.reply('Error guardando el depósito.');
         return;
       }
 
-      const depId = data.id;
+      const depId = ins.data.id;
 
       await ctx.reply(
         `✅ Depósito creado (pendiente).\n\n` +
         `ID: ${depId}\n` +
-        `Monto: ${monto.toFixed(2)} CUP\n` +
-        `Equivalente: ${usdtEq.toFixed(2)} USDT\n` +
-        `Método: CUP (tarjeta)\n\n` +
-        `• Envía una foto/captura del pago aquí.\n` +
+        `Monto: ${monto_origen} ${moneda}\n` +
+        (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : '') +
+        `Método: ${moneda}\n\n` +
+        `• Envía el hash de la transacción (USDT) o una foto del pago (CUP).\n` +
         `• Cuando el admin confirme, tu inversión será acreditada.`
       );
 
-      if (ADMIN_GROUP_ID) {
-        try {
-          await bot.telegram.sendMessage(
-            ADMIN_GROUP_ID,
-// ==== ÚNICO handler de texto (reemplaza TODO tu bot.on('text') con esto) ====
-bot.on('text', async (ctx) => {
-  try {
-    const chatId = ctx.from.id;
-    const txtRaw = (ctx.message.text || '').trim();
-    if (txtRaw.startsWith('/')) return;
-
-    const st = estado[chatId];
-    console.log('[TEXT] chatId=%s estado=%s msg=%s', chatId, st, txtRaw);
-
-    // Si no está en flujo de invertir/retirar, ignorar
-    if (st !== 'INV_USDT' && st !== 'INV_CUP' && st !== 'RET') return;
-
-    // Normaliza número (coma o punto)
-    const txt = txtRaw.replace(',', '.');
-    const monto = Number(txt);
-    if (isNaN(monto) || monto <= 0) {
-      await ctx.reply('Monto inválido. Intenta de nuevo.');
-      return;
-    }
-
-    // ------- FLUJO: DEPÓSITO USDT -------
-    if (st === 'INV_USDT') {
-      if (monto < MIN_INVERSION) {
-        await ctx.reply(`El mínimo de inversión es ${MIN_INVERSION} USDT.`);
-        return;
-      }
-
-      await asegurarUsuario(chatId);
-
-      // Guardar SIEMPRE en USDT
-      const { data, error } = await supabase
-        .from('depositos')
-        .insert([{
-          telegram_id: chatId,
-          monto: monto,           // USDT
-          moneda: 'USDT',
-          monto_origen: monto,    // lo que escribió
-          tasa_usdt: null,        // null porque fue USDT directo
-          estado: 'pendiente'
-        }])
-        .select('id')
-        .single();
-
-      if (error) {
-        console.log('[DEP USDT] error insert:', error);
-        await ctx.reply('Error guardando el depósito.');
-        return;
-      }
-
-      const depId = data.id;
-
-      await ctx.reply(
-        `✅ Depósito creado (pendiente).\n\n` +
-        `ID: ${depId}\n` +
-        `Monto: ${monto.toFixed(2)} USDT\n` +
-        `Método: USDT (BEP20)\n\n` +
-        `• Envía el hash de la transacción (USDT) o una foto del pago.\n` +
-        `• Cuando el admin confirme, tu inversión será acreditada.\n\n` +
-        `Wallet USDT (BEP20): ${WALLET_USDT}`
+      await bot.telegram.sendMessage(
+        ADMIN_GROUP_ID,
+        `📩 DEPÓSITO pendiente\n` +
+        `ID: #${depId}\n` +
+        `User: ${chatId}\n` +
+        `Monto: ${monto_origen} ${moneda}\n` +
+        (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : '') +
+        `Método: ${moneda}`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
+              [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}` }]
+            ]
+          }
+        }
       );
 
-      // Aviso a admin/grupo (si está configurado)
-      if (ADMIN_GROUP_ID) {
-        try {
-          await bot.telegram.sendMessage(
-            ADMIN_GROUP_ID,
-            `📩 DEPÓSITO pendiente\n` +
-            `ID: #${depId}\n` +
-            `User: ${chatId}\n` +
-            `Monto: ${monto.toFixed(2)} USDT\n` +
-            `Método: USDT`,
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
-                  [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}` }]
-                ]
-              }
-            }
-          );
-        } catch (e) {
-          console.log('[DEP USDT] error avisando admin:', e);
-        }
-      }
-
+      // Opcional: limpiar estado para no procesar otro número
       estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
       return;
     }
 
-    // ------- FLUJO: DEPÓSITO CUP -------
-    if (st === 'INV_CUP') {
-      if (monto < 500) {
-        await ctx.reply('El mínimo de inversión es 500 CUP.');
-        return;
-      }
-
-      await asegurarUsuario(chatId);
-
-      const tasa = Number(process.env.CUP_USDT_RATE || 400); // fija
-      const usdtEq = monto / tasa;
-
-      const { data, error } = await supabase
-        .from('depositos')
-        .insert([{
-          telegram_id: chatId,
-          monto: usdtEq,          // guardamos en USDT equivalente
-          moneda: 'CUP',
-          monto_origen: monto,    // CUP que escribió
-          tasa_usdt: tasa,        // 400 por defecto
-          estado: 'pendiente'
-        }])
-        .select('id')
-        .single();
-
-      if (error) {
-        console.log('[DEP CUP] error insert:', error);
-        await ctx.reply('Error guardando el depósito.');
-        return;
-      }
-
-      const depId = data.id;
-
-      await ctx.reply(
-        `✅ Depósito creado (pendiente).\n\n` +
-        `ID: ${depId}\n` +
-        `Monto: ${monto.toFixed(2)} CUP\n` +
-        `Equivalente: ${usdtEq.toFixed(2)} USDT\n` +
-        `Método: CUP (tarjeta)\n\n` +
-        `• Envía una foto/captura del pago aquí.\n` +
-        `• Cuando el admin confirme, tu inversión será acreditada.`
-      );
-
-      if (ADMIN_GROUP_ID) {
-        try {
-          await bot.telegram.sendMessage(
-            ADMIN_GROUP_ID,
-            `📩 DEPÓSITO pendiente\n` +
-            `ID: #${depId}\n` +
-            `User: ${chatId}\n` +
-            `Monto: ${monto.toFixed(2)} CUP (≈ ${usdtEq.toFixed(2)} USDT)\n` +
-            `Método: CUP`,
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
-                  [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}` }]
-                ]
-              }
-            }
-          );
-        } catch (e) {
-          console.log('[DEP CUP] error avisando admin:', e);
-        }
-      }
-
-      estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
-      return;
-    }
-
-    // ------- FLUJO: RETIRO (ya te funcionaba) -------
+    // === Retirar (st === 'RET') ===
     if (st === 'RET') {
       await asegurarUsuario(chatId);
       const car = await carteraDe(chatId);
-
-      const totalDebitar = monto + RETIRO_FEE_USDT;
       const disp = Number(car.saldo || 0);
+      const totalDebitar = monto + RETIRO_FEE_USDT;
 
       if (totalDebitar > disp) {
         await ctx.reply(
-          'Saldo insuficiente. Tu disponible es ' + disp.toFixed(2) +
-          ' USDT y se necesita ' + totalDebitar.toFixed(2) + ' USDT (monto + fee).'
+          'Saldo insuficiente. Tu disponible es ' + disp.toFixed(2) + ' USDT ' +
+          'y se necesita ' + totalDebitar.toFixed(2) + ' USDT (monto + fee).'
         );
         return;
       }
 
-      // Debita saldo y crea retiro pendiente
       await actualizarCartera(chatId, { saldo: disp - totalDebitar });
 
-      const { data, error } = await supabase
-        .from('retiros')
-        .insert([{ telegram_id: chatId, monto, estado: 'pendiente' }])
-        .select('id')
-        .single();
+      const insR = await supabase.from('retiros').insert([{
+        telegram_id: chatId,
+        monto: monto,
+        estado: 'pendiente'
+      }]).select('id').single();
 
       await ctx.reply(
-        `Retiro solicitado por ${monto.toFixed(2)} USDT.\n` +
-        `Fee descontado: ${RETIRO_FEE_USDT.toFixed(2)} USDT.\n` +
-        `Estado: pendiente.`
+        'Retiro solicitado por ' + monto.toFixed(2) + ' USDT.\n' +
+        'Fee descontado: ' + RETIRO_FEE_USDT.toFixed(2) + ' USDT.\n' +
+        'Estado: pendiente.'
       );
 
-      if (!error && data && ADMIN_GROUP_ID) {
-        const rid = data.id;
-        try {
-          await bot.telegram.sendMessage(
-            ADMIN_GROUP_ID,
-            `💸 RETIRO pendiente\n` +
-            `ID: #${rid}\n` +
-            `User: ${chatId}\n` +
-            `Monto: ${monto.toFixed(2)} USDT`,
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '✅ Aprobar',  callback_data: `ret:approve:${rid}` }],
-                  [{ text: '❌ Rechazar', callback_data: `ret:reject:${rid}` }]
-                ]
-              }
-            }
-          );
-        } catch (e) {
-          console.log('[RET] error avisando admin:', e);
-        }
-      }
-
       estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
       return;
     }
 
   } catch (e) {
     console.log('Error en handler de texto:', e);
   }
-});
+}); // <<--- este cierre debe existir
+
 // Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
 bot.on('photo', async (ctx) => {
   try {
@@ -1194,6 +962,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
