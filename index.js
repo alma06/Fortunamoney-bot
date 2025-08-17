@@ -445,29 +445,33 @@ bot.on('text', async (ctx) => {
       );
 
       estado[chatId] = undefined;
-      await ctx.reply('Menú:', menu());
+await ctx.reply('Menú:', menu());
 
-      // (opcional) Aviso admin/grupo
-        if (insR && insR.data) {
-            const rid = insR.data.id;
-            const avisoR = 
-                '📢 Nuevo RETIRO pendiente\n' +
-                'ID: #' + rid + '\n' +
-                'User: ' + chatId + '\n' +
-                'Monto: ' + monto.toFixed(2) + ' USDT';
-            try {
-                await avisarAdmin(avisoR, { reply_markup: kbRet(rid).reply_markup });
-            } catch (e3) {
-                console.log('No pude avisar al admin/grupo:', e3);
-            }
-        }
-// Si llega texto que no corresponde a un estado, no hacer nada especial
-    return;
-  } catch (e) {
-    console.log(e);
-    try { await ctx.reply('Ocurrió un error.'); } catch {}
+// (opcional) Aviso admin/grupo
+if (insR && insR.data) {
+  const rid = insR.data.id;
+  const avisoR =
+    '🆕 Nuevo RETIRO pendiente\n' +
+    'ID: #' + rid + '\n' +
+    'User: ' + chatId + '\n' +
+    'Monto: $' + monto.toFixed(2) + ' USDT';
+
+  try {
+    await avisarAdmin(avisoR, { reply_markup: kbRet(rid).reply_markup });
+  } catch (e3) {
+    console.log('No pude avisar al admin/grupo:', e3);
   }
-}); // <-- FIN del bot.on('text')
+}
+
+return;                  // <-- salimos del handler normal
+
+} catch (e) {            // <-- único catch que cierra el try principal del handler
+  console.log(e);
+  try { await ctx.reply('Ocurrió un error.'); } catch {}
+}
+
+});                      // <-- FIN del bot.on('text')
+
 
 // Foto: guarda comprobante en depósito más reciente pendiente y lo manda al grupo
 bot.on('photo', async (ctx) => {
@@ -774,6 +778,7 @@ app.listen(PORT, async () => {
     console.log('Error configurando webhook/polling:', e.message);
   }
 });
+
 
 
 
