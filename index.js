@@ -51,17 +51,49 @@ function progreso500({ saldo, bono, bruto }) {
   return ((numero(saldo) + numero(bono)) / top) * 100;
 }
 
+/* ========= ÚNICO CAMBIO IMPORTANTE =========
+   Deja de usar upsert() con ceros que pisaba los valores.
+   Ahora: solo crea si NO existe; y solo fija patrocinador
+   si estaba vacío y llega un sponsor nuevo.
+*/
 async function asegurarUsuario(telegram_id, referido_por = null) {
-  // Crea usuario con patrocinador si viene
-  await supabase
+  // -- USUARIO
+  const { data: u } = await supabase
     .from('usuarios')
-    .upsert([{ telegram_id, patrocinador_id: referido_por || null }], { onConflict: 'telegram_id' });
+    .select('telegram_id, patrocinador_id')
+    .eq('telegram_id', telegram_id)
+    .maybeSingle();
 
-  // Crea cartera si no existe
-  await supabase
+  if (!u) {
+    await supabase.from('usuarios').insert([{
+      telegram_id,
+      patrocinador_id: referido_por || null
+    }]);
+  } else if (!u.patrocinador_id && referido_por) {
+    await supabase
+      .from('usuarios')
+      .update({ patrocinador_id: referido_por })
+      .eq('telegram_id', telegram_id);
+  }
+
+  // -- CARTERA
+  const { data: c } = await supabase
     .from('carteras')
-    .upsert([{ telegram_id, saldo: 0, principal: 0, bono: 0, bruto: 0 }], { onConflict: 'telegram_id' });
+    .select('telegram_id')
+    .eq('telegram_id', telegram_id)
+    .maybeSingle();
+
+  if (!c) {
+    await supabase.from('carteras').insert([{
+      telegram_id,
+      saldo: 0,
+      principal: 0,
+      bruto: 0,
+      bono: 0
+    }]);
+  }
 }
+// =============== FIN DEL CAMBIO =================
 
 async function carteraDe(telegram_id) {
   const { data } = await supabase
@@ -90,49 +122,6 @@ async function actualizarCartera(telegram_id, patch) {
   await supabase.from('carteras').upsert([row], { onConflict: 'telegram_id' });
 }
 
-// ======== PAGO DE BONO DE REFERIDO (10%) ========
-async function pagarBonoReferido({ sponsorId, referidoId, baseDepositoUSDT }) {
-  try {
-    if (!sponsorId) return 0;
-
-    // Asegura existencia de sponsor
-    await asegurarUsuario(sponsorId);
-
-    const carS = await carteraDe(sponsorId);
-
-    // Bono bruto 10% del depósito aprobado
-    const bonoBruto = numero(baseDepositoUSDT) * 0.10;
-
-    // Tope 500%: solo cuenta lo ganado (saldo + bono)
-    const topS    = top500(carS.bruto);
-    const ganadoS = numero(carS.saldo) + numero(carS.bono);
-    const margenS = Math.max(0, topS - ganadoS);
-
-    const bonoFinal = Math.max(0, Math.min(bonoBruto, margenS));
-    if (bonoFinal <= 0) return 0;
-
-    // Acredita en disponible (saldo) y lleva un acumulado en bono
-    await actualizarCartera(sponsorId, {
-      saldo: carS.saldo + bonoFinal,
-      bono:  carS.bono  + bonoFinal
-    });
-
-    // Notifica al sponsor
-    try {
-      await bot.telegram.sendMessage(
-        sponsorId,
-        `🎉 Bono de referido acreditado: ${bonoFinal.toFixed(2)} USDT\n` +
-        `Por el depósito de tu referido ${referidoId}.`
-      );
-    } catch {}
-
-    return bonoFinal;
-  } catch (e) {
-    console.log('pagarBonoReferido error:', e);
-    return 0;
-  }
-}
-
 // ======== Referral deep-link (/start ref=ID) ========
 bot.start(async (ctx) => {
   try {
@@ -149,6 +138,7 @@ bot.start(async (ctx) => {
 
     await asegurarUsuario(uid, sponsor);
     await ctx.reply('¡Bienvenido a FortunaMoney! Usa el menú 👇', menu());
+
   } catch (e) {
     console.log('START error:', e);
   }
@@ -176,6 +166,7 @@ bot.hears('Saldo', async (ctx) => {
       `Progreso al 500%:       ${prog.toFixed(2)}%`,
       menu()
     );
+
   } catch (e) {
     console.log('ERROR Saldo:', e);
     try { await ctx.reply('Error obteniendo tu saldo. Intenta de nuevo.'); } catch {}
@@ -410,6 +401,7 @@ bot.on('photo', async (ctx) => {
         [{ text: '❌ Rechazar', callback_data: `dep:reject:${dep.id}` }]
       ]}
     });
+
   } catch (e) {
     console.error("Error en handler de foto:", e);
   }
@@ -426,16 +418,21 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
 
     // Acreditar: principal +90%, BRUTO +100% (no toca saldo)
     const carPrev = await carteraDe(d.telegram_id);
-    const montoNeto   = numero(d.monto) * 0.90;
-    const nuevoPrinc  = carPrev.principal + montoNeto;
-    const nuevoBruto  = carPrev.bruto     + numero(d.monto);
+    const montoNeto = numero(d.monto) * 0.90;
+    const nuevoPrincipal = carPrev.principal + montoNeto;
+    const nuevoBruto     = carPrev.bruto     + numero(d.monto);
 
-    await actualizarCartera(d.telegram_id, { principal: nuevoPrinc, bruto: nuevoBruto });
+    await actualizarCartera(d.telegram_id, {
+      principal: nuevoPrincipal,
+      bruto: nuevoBruto
+    });
 
     // Marcar depósito como aprobado
-    await supabase.from('depositos').update({ estado: 'aprobado' }).eq('id', depId);
+    await supabase.from('depositos')
+      .update({ estado: 'aprobado' })
+      .eq('id', depId);
 
-    // ====== BONO 10% AL PATROCINADOR (DISPONIBLE + BONO, con tope) ======
+    // Pagar 10% al patrocinador CAPEADO por tope (saldo/bono cuentan hacia el 500%)
     try {
       const { data: u } = await supabase
         .from('usuarios')
@@ -443,17 +440,31 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
         .eq('telegram_id', d.telegram_id)
         .maybeSingle();
 
-      const sponsorId = u?.patrocinador_id ? Number(u.patrocinador_id) : null;
-      if (sponsorId) {
-        await pagarBonoReferido({
-          sponsorId,
-          referidoId: d.telegram_id,
-          baseDepositoUSDT: numero(d.monto)
-        });
+      const sponsor = u?.patrocinador_id ? Number(u.patrocinador_id) : null;
+      if (sponsor) {
+        const bonoBruto = numero(d.monto) * 0.10;
+        const carS = await carteraDe(sponsor);
+
+        const topS = top500(carS.bruto);
+        const ganadoS = carS.saldo + carS.bono;
+        const margenS = topS - ganadoS;
+
+        const bonoFinal = Math.max(0, Math.min(bonoBruto, margenS));
+        if (bonoFinal > 0) {
+          await actualizarCartera(sponsor, {
+            saldo: carS.saldo + bonoFinal,
+            bono:  carS.bono  + bonoFinal
+          });
+          try {
+            await bot.telegram.sendMessage(
+              sponsor,
+              `🎉 Bono de referido acreditado: ${bonoFinal.toFixed(2)} USDT\n` +
+              `Por el depósito de tu referido ${d.telegram_id}.`
+            );
+          } catch {}
+        }
       }
-    } catch (e) {
-      console.log('BONO ref error:', e);
-    }
+    } catch (e) { console.log('BONO ref error:', e); }
 
     // Aviso al usuario
     try {
@@ -467,6 +478,7 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
 
     await ctx.editMessageReplyMarkup();
     await ctx.reply(`Depósito aprobado: ${numero(d.monto).toFixed(2)} USDT`);
+
   } catch (e) { console.log(e); }
 });
 
@@ -498,6 +510,7 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
     await bot.telegram.sendMessage(r.telegram_id, `✅ Retiro aprobado: ${r.monto.toFixed(2)} USDT`);
     await ctx.editMessageReplyMarkup();
     await ctx.reply(`Retiro #${rid} aprobado.`);
+
   } catch (e) { console.log(e); }
 });
 
@@ -513,7 +526,7 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
 
 // ======== /pagarhoy (pago manual de ganancias) ========
 // Regla: principal < 500 => 1.5% ; principal >= 500 => 2%
-// Respeta tope 500% con GANADO (saldo+bono)
+// Puedes ejecutarlo N veces al día; siempre respeta el tope 500% con GANADO (saldo+bono).
 bot.command('pagarhoy', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return ctx.reply('Solo admin.');
   try {
@@ -556,6 +569,7 @@ bot.command('pagarhoy', async (ctx) => {
     }
 
     await ctx.reply(`✅ /pagarhoy completado.\nCuentas pagadas: ${cuentasPagadas}\nTotal pagado: ${totalPagado.toFixed(2)} USDT`);
+
   } catch (e) {
     console.log('/pagarhoy error:', e);
     try { await ctx.reply('Error en pagarhoy. Revisa logs.'); } catch {}
@@ -563,9 +577,9 @@ bot.command('pagarhoy', async (ctx) => {
 });
 
 // ======== Webhook / Ping ========
-app.get('/', (_req, res) => res.send('OK'));
+app.get('/', (_, res) => res.send('OK'));
 app.post(`/webhook/${WEBHOOK_SECRET}`, (req, res) => bot.handleUpdate(req.body, res));
-app.get('/webhook', async (_req, res) => {
+app.get('/webhook', async (_, res) => {
   try {
     const url = `${HOST_URL}/webhook/${WEBHOOK_SECRET}`;
     await bot.telegram.setWebhook(url);
