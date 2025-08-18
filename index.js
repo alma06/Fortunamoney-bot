@@ -511,6 +511,74 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
   } catch (e) { console.log(e); }
 });
 
+// ======== /pagarhoy (pago manual de ganancias) ========
+// Sin restricción de día. Respeta tope 500% (saldo+bono) y paga 1.5% (<500) o 2% (>=500).
+bot.command('pagarhoy', async (ctx) => {
+  // Si quieres que cualquiera lo ejecute, comenta la siguiente línea.
+  if (ctx.from.id !== ADMIN_ID) return ctx.reply('Solo admin.');
+
+  try {
+    const { data: carteras, error } = await supabase
+      .from('carteras')
+      .select('telegram_id, saldo, principal, bruto, bono');
+
+    if (error) {
+      console.log('/pagarhoy select error:', error);
+      return ctx.reply('Error leyendo carteras.');
+    }
+    if (!carteras || !carteras.length) return ctx.reply('No hay carteras.');
+
+    let totalPagado = 0;
+    let cuentasPagadas = 0;
+
+    for (const c of carteras) {
+      const principal = numero(c.principal);
+      const bruto     = numero(c.bruto);
+      const saldo     = numero(c.saldo);
+      const bono      = numero(c.bono);
+
+      if (principal <= 0 || bruto <= 0) continue;
+
+      // Tasa por tramo
+      const rate = principal >= 500 ? 0.02 : 0.015;
+      let pago = principal * rate;
+
+      // Tope 500%: sólo cuenta lo ganado (saldo + bono)
+      const top = top500(bruto);              // bruto * 5
+      const ganado = saldo + bono;            // lo que ya ganó
+      const margen = top - ganado;            // cuánto queda del 500%
+
+      if (margen <= 0) continue;
+      if (pago > margen) pago = margen;
+      if (pago <= 0) continue;
+
+      await actualizarCartera(c.telegram_id, { saldo: saldo + pago });
+      totalPagado += pago;
+      cuentasPagadas += 1;
+
+      // Aviso al usuario
+      try {
+        await bot.telegram.sendMessage(
+          c.telegram_id,
+          `💸 Pago acreditado: ${pago.toFixed(2)} USDT`
+        );
+      } catch (eNoti) {
+        console.log('No pude notificar a', c.telegram_id, eNoti?.message || eNoti);
+      }
+    }
+
+    await ctx.reply(
+      `✅ /pagarhoy completado.\n` +
+      `Cuentas pagadas: ${cuentasPagadas}\n` +
+      `Total pagado: ${totalPagado.toFixed(2)} USDT`
+    );
+
+  } catch (e) {
+    console.log('/pagarhoy error:', e);
+    try { await ctx.reply('Error en pagarhoy. Revisa logs.'); } catch {}
+  }
+});
+
 // ======== Webhook / Ping ========
 app.get('/', (_, res) => res.send('OK'));
 app.post(`/webhook/${WEBHOOK_SECRET}`, (req, res) => bot.handleUpdate(req.body, res));
@@ -540,6 +608,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
