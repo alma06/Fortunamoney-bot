@@ -38,6 +38,83 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // Estado para tracking de conversaciones
 const estado = {};
 
+// ======== Funciones para Tasa Diaria Dinámica ========
+async function obtenerPorcentajeDelDia() {
+  try {
+    const { data, error } = await supabase
+      .from('tasa_diaria')
+      .select('porcentaje')
+      .order('fecha', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (error) {
+      console.log('Error obteniendo tasa diaria:', error);
+      return 1; // Default 1%
+    }
+    
+    return data ? numero(data.porcentaje) : 1; // Default 1%
+  } catch (e) {
+    console.log('Error en obtenerPorcentajeDelDia:', e);
+    return 1; // Default 1%
+  }
+}
+
+async function establecerPorcentajeDelDia(porcentaje) {
+  try {
+    const { error } = await supabase
+      .from('tasa_diaria')
+      .insert([{
+        porcentaje: numero(porcentaje),
+        fecha: new Date().toISOString()
+      }]);
+    
+    if (error) {
+      console.log('Error estableciendo tasa diaria:', error);
+      return false;
+    }
+    
+    return true;
+  } catch (e) {
+    console.log('Error en establecerPorcentajeDelDia:', e);
+    return false;
+  }
+}
+
+async function notificarNuevaTasa(porcentaje) {
+  try {
+    // Obtener todos los usuarios activos (con inversiones aprobadas)
+    const { data: usuarios } = await supabase
+      .from('depositos')
+      .select('telegram_id')
+      .eq('estado', 'aprobado');
+    
+    if (!usuarios || !usuarios.length) return;
+    
+    // Crear lista única de usuarios
+    const usuariosUnicos = [...new Set(usuarios.map(u => Number(u.telegram_id)))];
+    
+    const mensaje = `📊 Tasa del día: ${porcentaje}% - ¡Prepárate para tus ganancias!`;
+    
+    let notificados = 0;
+    for (const userId of usuariosUnicos) {
+      try {
+        await bot.telegram.sendMessage(userId, mensaje);
+        notificados++;
+        // Pequeña pausa para evitar rate limits
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (e) {
+        console.log(`No se pudo notificar a ${userId}:`, e?.message || e);
+      }
+    }
+    
+    console.log(`Notificación de tasa enviada a ${notificados} usuarios`);
+    return notificados;
+  } catch (e) {
+    console.log('Error en notificarNuevaTasa:', e);
+    return 0;
+  }
+}
 
 // ======== Helpers ========
 function numero(x) { return Number(x ?? 0) || 0; }
@@ -196,13 +273,14 @@ bot.command(['ayuda', 'help'], async (ctx) => {
     '• **Ganado total** - Ve tu histórico de ganancias\n\n' +
     '💰 **Información importante:**\n' +
     '• Inversión mínima: 25 USDT o 500 CUP\n' +
-    '• Ganancias diarias: 1.5% - 2% según el monto\n' +
+    '• Ganancias diarias: Tasa dinámica (consulta /porcentajehoy)\n' +
     '• Tope máximo: 500% de tu inversión total\n' +
     '• Bono por referidos: 10% del depósito\n\n' +
     '🔧 **Comandos útiles:**\n' +
     '• /start - Reiniciar el bot\n' +
     '• /menu - Mostrar el menú\n' +
-    '• /ayuda - Mostrar esta ayuda\n\n' +
+    '• /ayuda - Mostrar esta ayuda\n' +
+    '• /porcentajehoy - Ver la tasa del día\n\n' +
     '📞 **¿Necesitas soporte?** Contacta con el administrador.';
   
   await ctx.reply(helpText, { parse_mode: 'Markdown', ...menu() });
@@ -912,6 +990,10 @@ bot.command('pagarhoy', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return ctx.reply('Solo admin.');
 
   try {
+    // Obtener la tasa del día
+    const tasaDelDia = await obtenerPorcentajeDelDia();
+    const rate = tasaDelDia / 100; // Convertir porcentaje a decimal
+
     // Obtener todas las inversiones aprobadas
     const { data: inversiones, error } = await supabase
       .from('depositos')
@@ -949,11 +1031,7 @@ bot.command('pagarhoy', async (ctx) => {
         continue;
       }
 
-      // Calcular tasa según monto en USDT
-      const montoBaseUSDT = moneda === 'USDT' ? montoBase : montoBase / (inv.tasa_usdt || CUP_USDT_RATE);
-      const rate = montoBaseUSDT >= 25 ? 0.02 : 0.015; // 2% para >= 25 USDT, 1.5% para menor
-      
-      // Calcular pago en la moneda original
+      // Calcular pago usando la tasa del día
       let pago = montoBase * rate;
 
       // Verificar que no exceda el tope
@@ -979,14 +1057,14 @@ bot.command('pagarhoy', async (ctx) => {
       }
       cuentasPagadas += 1;
       
-      log.push(`Inv #${inv.id} (${userId}): ${pago.toFixed(moneda === 'USDT' ? 4 : 0)} ${moneda} (rate ${(rate * 100).toFixed(1)}%)`);
+      log.push(`Inv #${inv.id} (${userId}): ${pago.toFixed(moneda === 'USDT' ? 4 : 0)} ${moneda} (tasa ${tasaDelDia}%)`);
 
       // Notificar al usuario
       try {
         await bot.telegram.sendMessage(
           userId, 
           `💸 Pago acreditado: ${pago.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}\n` +
-          `📊 Inversión #${inv.id}`
+          `📊 Inversión #${inv.id} (Tasa del día: ${tasaDelDia}%)`
         );
       } catch (eNoti) {
         console.log('No pude notificar a', userId, eNoti?.message || eNoti);
@@ -994,7 +1072,7 @@ bot.command('pagarhoy', async (ctx) => {
     }
 
     const resumen =
-      `✅ /pagarhoy completado.\n` +
+      `✅ /pagarhoy completado (Tasa: ${tasaDelDia}%).\n` +
       `Inversiones pagadas: ${cuentasPagadas}\n` +
       `Total USDT: ${totalPagadoUSDT.toFixed(2)}\n` +
       `Total CUP: ${totalPagadoCUP.toFixed(0)}\n` +
@@ -1005,6 +1083,50 @@ bot.command('pagarhoy', async (ctx) => {
   } catch (e) {
     console.log('/pagarhoy error:', e);
     try { await ctx.reply('Error en pagarhoy. Revisa logs.'); } catch {}
+  }
+});
+
+// ======== Comandos para Tasa Diaria ========
+bot.command('porcentajedeldia', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return ctx.reply('Solo admin.');
+
+  const argumento = ctx.message.text.split(' ')[1];
+  if (!argumento) {
+    return ctx.reply('Uso: /porcentajedeldia <porcentaje>\nEjemplo: /porcentajedeldia 1.5');
+  }
+
+  const porcentaje = numero(argumento);
+  if (porcentaje <= 0 || porcentaje > 10) {
+    return ctx.reply('El porcentaje debe ser mayor a 0 y máximo 10%');
+  }
+
+  try {
+    const exito = await establecerPorcentajeDelDia(porcentaje);
+    if (!exito) {
+      return ctx.reply('Error guardando el porcentaje en la base de datos.');
+    }
+
+    // Notificar a todos los usuarios
+    const notificados = await notificarNuevaTasa(porcentaje);
+    
+    await ctx.reply(
+      `✅ Porcentaje del día establecido: ${porcentaje}%\n` +
+      `📨 Notificados: ${notificados} usuarios`
+    );
+
+  } catch (e) {
+    console.log('/porcentajedeldia error:', e);
+    await ctx.reply('Error configurando el porcentaje del día.');
+  }
+});
+
+bot.command('porcentajehoy', async (ctx) => {
+  try {
+    const porcentaje = await obtenerPorcentajeDelDia();
+    await ctx.reply(`📊 Porcentaje del día: ${porcentaje}%`);
+  } catch (e) {
+    console.log('/porcentajehoy error:', e);
+    await ctx.reply('Error obteniendo el porcentaje del día.');
   }
 });
 
