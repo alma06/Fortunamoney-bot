@@ -131,13 +131,19 @@ function menu() {
 // === NUEVAS FUNCIONES PARA INVERSIONES INDIVIDUALES ===
 
 // Obtener todas las inversiones activas de un usuario
-async function inversionesDe(telegram_id) {
-  const { data } = await supabase
+async function inversionesDe(telegram_id, incluirBonos = true) {
+  let query = supabase
     .from('depositos')
     .select('*')
     .eq('telegram_id', telegram_id)
-    .eq('estado', 'aprobado')
-    .order('id', { ascending: true });
+    .eq('estado', 'aprobado');
+    
+  // Si no queremos incluir bonos, filtrarlos
+  if (!incluirBonos) {
+    query = query.neq('es_bono_referido', true);
+  }
+  
+  const { data } = await query.order('id', { ascending: true });
   
   return data || [];
 }
@@ -292,16 +298,21 @@ bot.hears('Saldo', async (ctx) => {
     const chatId = ctx.from.id;
     await asegurarUsuario(chatId);
 
-    // Obtener inversiones individuales
-    const inversiones = await inversionesDe(chatId);
+    // Obtener inversiones individuales (sin bonos) y bonos por separado
+    const inversiones = await inversionesDe(chatId, false); // Sin bonos
+    const bonosInversion = await inversionesDe(chatId, true); // Con bonos, luego filtraremos
     const saldos = await saldosPorMoneda(chatId);
     const bonos = await carteraBonosDe(chatId);
 
-    if (!inversiones.length) {
+    // Separar bonos de inversiones
+    const soloInversiones = bonosInversion.filter(inv => !inv.es_bono_referido);
+    const soloBonos = bonosInversion.filter(inv => inv.es_bono_referido);
+
+    if (!soloInversiones.length && bonos.saldo <= 0 && !soloBonos.length) {
       return ctx.reply(
         '📊 **Tu estado actual:**\n\n' +
         '💰 No tienes inversiones activas.\n' +
-        `💎 Bonos disponibles: ${bonos.saldo.toFixed(2)} USDT\n\n` +
+        `💎 No tienes bonos disponibles.\n\n` +
         '¡Comienza a invertir para generar ganancias diarias!',
         { parse_mode: 'Markdown', ...menu() }
       );
@@ -309,9 +320,9 @@ bot.hears('Saldo', async (ctx) => {
 
     let mensaje = '📊 **Tus Inversiones:**\n\n';
 
-    // Agrupar por moneda
+    // Agrupar por moneda solo las inversiones reales
     const porMoneda = { USDT: [], CUP: [] };
-    for (const inv of inversiones) {
+    for (const inv of soloInversiones) {
       porMoneda[inv.moneda].push(inv);
     }
 
@@ -341,9 +352,27 @@ bot.hears('Saldo', async (ctx) => {
       mensaje += `  🟢 **Total CUP: ${saldos.CUP.toFixed(0)}**\n\n`;
     }
 
-    // Bonos
-    if (bonos.saldo > 0) {
-      mensaje += `💎 **Bonos referidos:** ${bonos.saldo.toFixed(2)} USDT\n\n`;
+    // Mostrar bonos de referidos
+    let tieneBonosUSDT = bonos.saldo > 0;
+    let tieneBonosCUP = false;
+    let totalBonosCUP = 0;
+
+    for (const bono of soloBonos) {
+      if (bono.moneda === 'CUP') {
+        tieneBonosCUP = true;
+        totalBonosCUP += numero(bono.ganado_disponible);
+      }
+    }
+
+    if (tieneBonosUSDT || tieneBonosCUP) {
+      mensaje += '💎 **Bonos de referidos:**\n';
+      if (tieneBonosUSDT) {
+        mensaje += `  • USDT: ${bonos.saldo.toFixed(2)} USDT\n`;
+      }
+      if (tieneBonosCUP) {
+        mensaje += `  • CUP: ${totalBonosCUP.toFixed(0)} CUP\n`;
+      }
+      mensaje += '\n';
     }
 
     mensaje += '💡 *Cada inversión tiene un tope del 500%*';
@@ -808,28 +837,43 @@ try {
   if (!sponsorId || Number.isNaN(sponsorId) || sponsorId === d.telegram_id) {
     console.log('[BONO] sin patrocinador válido; no se paga 10%.');
   } else {
-    // 10% del depósito en USDT (siempre en USDT, aunque la inversión sea CUP)
-    let bonoMonto = numero(d.monto_origen) * 0.10;
-    if (d.moneda === 'CUP') {
-      // Convertir el 10% de CUP a USDT para el bono
-      bonoMonto = bonoMonto / (d.tasa_usdt || CUP_USDT_RATE);
+    // 10% del depósito en la misma moneda que invirtió el referido
+    const bonoMonto = numero(d.monto_origen) * 0.10;
+    const monedaBono = d.moneda; // Usar la misma moneda del depósito
+
+    // Si es CUP, creamos una inversión ficticia de bono en CUP
+    // Si es USDT, lo manejamos como antes en la cartera de bonos
+    if (monedaBono === 'CUP') {
+      // Crear inversión ficticia de bono en CUP
+      await supabase.from('depositos').insert([{
+        telegram_id: sponsorId,
+        monto: bonoMonto / (d.tasa_usdt || CUP_USDT_RATE), // Equivalente en USDT para monto
+        moneda: 'CUP',
+        monto_origen: bonoMonto,
+        tasa_usdt: d.tasa_usdt || CUP_USDT_RATE,
+        estado: 'aprobado',
+        ganado_disponible: bonoMonto, // El bono está disponible inmediatamente
+        ganado_total: bonoMonto,
+        fecha_creacion: new Date().toISOString(),
+        fecha_aprobacion: new Date().toISOString(),
+        es_bono_referido: true // Marcar como bono para diferenciarlo
+      }]);
+    } else {
+      // USDT: usar el sistema de cartera como antes
+      await asegurarUsuario(sponsorId);
+      const carS = await carteraBonosDe(sponsorId);
+
+      await actualizarCarteraBonos(sponsorId, {
+        saldo: carS.saldo + bonoMonto,
+        bono:  carS.bono  + bonoMonto,
+        ganado_total: carS.ganado_total + bonoMonto
+      });
     }
-
-    // cartera de bonos del patrocinador
-    await asegurarUsuario(sponsorId);
-    const carS = await carteraBonosDe(sponsorId);
-
-    // Los bonos no tienen tope, se pagan completos
-    await actualizarCarteraBonos(sponsorId, {
-      saldo: carS.saldo + bonoMonto,
-      bono:  carS.bono  + bonoMonto,
-      ganado_total: carS.ganado_total + bonoMonto
-    });
 
     try {
       await bot.telegram.sendMessage(
         sponsorId,
-        `🎉 Bono de referido acreditado: ${bonoMonto.toFixed(2)} USDT\n` +
+        `🎉 Bono de referido acreditado: ${bonoMonto.toFixed(monedaBono === 'USDT' ? 2 : 0)} ${monedaBono}\n` +
         `Por el depósito de tu referido ${d.telegram_id}.`
       );
     } catch (eMsg) {
@@ -994,11 +1038,12 @@ bot.command('pagarhoy', async (ctx) => {
     const tasaDelDia = await obtenerPorcentajeDelDia();
     const rate = tasaDelDia / 100; // Convertir porcentaje a decimal
 
-    // Obtener todas las inversiones aprobadas
+    // Obtener todas las inversiones aprobadas (excluyendo bonos)
     const { data: inversiones, error } = await supabase
       .from('depositos')
       .select('*')
       .eq('estado', 'aprobado')
+      .neq('es_bono_referido', true) // Excluir bonos de referido
       .order('id', { ascending: true });
 
     if (error) {
