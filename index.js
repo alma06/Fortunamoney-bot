@@ -233,25 +233,27 @@ bot.hears('Retirar', async (ctx) => {
 bot.on('text', async (ctx, next) => {
   try {
     const chatId = ctx.from.id;
-const st = estado[chatId];
+    const txtRaw = (ctx.message?.text ?? '').trim();
 
-// si empieza con comando, deja pasar a otros handlers
-const txtRaw = (ctx.message?.text ?? '').trim();
-if (txtRaw.startsWith('/')) return next();
+    // Si es un comando tipo /algo, deja pasar a otros handlers/comandos
+    if (txtRaw.startsWith('/')) return next();
 
-// si no estamos en un estado que maneje números/retiros,
-// DEJAMOS PASAR el mensaje a otros handlers (como hears('Retirar'))
-const allowed = ['INV_USDT','INV_CUP','RET','RET_DEST','RET_ELIGE_METODO'];
-if (!allowed.includes(st)) return next();
-    const txt = txtRaw.replace(',', '.');
-    
-    const monto = Number(txt);
-    if (isNaN(monto) || monto <= 0) {
-      await ctx.reply('Monto inválido. Intenta de nuevo.');
-      return;
-    }
+    const st = estado[chatId];
 
-    // ... resto de tu código igual ...
+    // Si NO estamos en un estado que este handler deba procesar,
+    // DEJA PASAR el mensaje a los .hears() con next()
+    const estadosManejados = ['INV_USDT', 'INV_CUP', 'RET', 'RET_DEST', 'RET_ELIGE_METODO'];
+    if (!estadosManejados.includes(st)) return next();
+
+    // ... aquí tu lógica de inversión/retiro por estado ...
+    // y cuando termines cada caso, usa `return` (está bien) 
+    // pero SOLO después de haber procesado ese caso.
+  } catch (e) {
+    console.log('ERROR en handler de texto:', e);
+    try { await ctx.reply('Ocurrió un error.'); } catch {}
+    return; // este sí puede cortar
+  }
+});
 
     // ===== INVERTIR =====
     if (st === 'INV_USDT' || st === 'INV_CUP') {
@@ -791,6 +793,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
