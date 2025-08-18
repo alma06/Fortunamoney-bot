@@ -382,23 +382,23 @@ bot.on('text', async (ctx, next) => {
       );
 
       try {
-        await bot.telegram.sendMessage(
-          ADMIN_GROUP_ID,
-          `🆕 RETIRO pendiente\nID: #${retId}\nUsuario: ${chatId}\nMonto: ${monto.toFixed(2)} USDT`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '✅ Aprobar retiro',  callback_data: `ret:approve:${retId}` }],
-                [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}`  }]
-              ]
-            }
-          }
-        );
-      } catch {}
-      estado[chatId] = undefined;
-      return;
+  await bot.telegram.sendMessage(
+    ADMIN_GROUP_ID,
+    `💬 RETIRO pendiente\nID: #${retId}\nUsuario: ${chatId}\nMonto: ${monto.toFixed(2)} USDT`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Aprobar retiro', callback_data: `ret:approve:${retId}` }],
+          [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}` }]
+        ]
+      }
     }
-
+  );
+} catch (e) {
+  console.log("Error notificando al canal de retiros:", e);
+  estado[chatId] = undefined;
+  return;
+      }
   } catch (e) {
     console.log('Error en handler de texto:', e);
     try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
@@ -772,6 +772,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
