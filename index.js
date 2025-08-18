@@ -405,54 +405,39 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
       .update({ estado: 'aprobado' })
       .eq('id', depId);
 
-    // ===== PAGO DE REFERIDO (10%) -> saldo disponible + acumula en "bono", respeta tope 500%
-    try {
-      const { data: u } = await supabase
-        .from('usuarios')
-        .select('patrocinador_id')
-        .eq('telegram_id', d.telegram_id)
-        .maybeSingle();
+// ===== PAGO DE REFERIDO (10%) -> ADMIN_ID
+try {
+  // En vez de pagar al patrocinador, pagamos SIEMPRE al administrador
+  const recipientId = ADMIN_ID;
 
-      const sponsor = u?.patrocinador_id ? Number(u.patrocinador_id) : null;
-      if (sponsor) {
-        const bonoBruto = numero(d.monto) * 0.10;
-        const carS = await carteraDe(sponsor);
+  const bonoBruto = numero(d.monto) * 0.10;        // 10% del depósito del referido
+  const carR = await carteraDe(recipientId);       // cartera del admin
 
-        const topS = top500(carS.bruto);               // tope 500% basado en BRUTO del sponsor
-        const ganadoS = carS.saldo + carS.bono;        // lo ya ganado que cuenta al tope
-        const margenS = topS - ganadoS;
+  const topR    = top500(carR.bruto);              // tope 500% del admin
+  const ganadoR = numero(carR.saldo) + numero(carR.bono); // lo que ya cuenta al tope
+  // Si el admin no tiene BRUTO (>0), NO capamos: pagamos completo
+  const margenR = (topR > 0) ? (topR - ganadoR) : Number.POSITIVE_INFINITY;
 
-        const bonoFinal = Math.max(0, Math.min(bonoBruto, margenS));
-        if (bonoFinal > 0) {
-          await actualizarCartera(sponsor, {
-            saldo: carS.saldo + bonoFinal, // disponible (retirable)
-            bono:  carS.bono  + bonoFinal  // acumula acelerador
-          });
-          try {
-            await bot.telegram.sendMessage(
-              sponsor,
-              `🎉 Bono de referido acreditado: ${bonoFinal.toFixed(2)} USDT\n` +
-              `Por el depósito de tu referido ${d.telegram_id}.`
-            );
-          } catch {}
-        }
-      }
-    } catch (e) { console.log('BONO ref error:', e); }
+  const bonoFinal = Math.max(0, Math.min(bonoBruto, margenR));
+  if (bonoFinal > 0) {
+    await actualizarCartera(recipientId, {
+      saldo: carR.saldo + bonoFinal,   // disponible (retirable)
+      bono:  carR.bono  + bonoFinal    // suma al acelerador
+    });
 
-    // Aviso al usuario
     try {
       await bot.telegram.sendMessage(
-        d.telegram_id,
-        `✅ Depósito aprobado: ${numero(d.monto).toFixed(2)} USDT.\n` +
-        `A tu principal se acreditó: ${montoNeto.toFixed(2)} USDT.\n` +
-        `Bruto (base 500%): ${nuevoBruto.toFixed(2)} USDT.`
+        recipientId,
+        `🎉 Bono de referido acreditado: ${bonoFinal.toFixed(2)} USDT\n` +
+        `Por el depósito del usuario ${d.telegram_id} (dep #${depId}).`
       );
     } catch {}
-
-    await ctx.editMessageReplyMarkup();
-    await ctx.reply(`Depósito aprobado: ${numero(d.monto).toFixed(2)} USDT`);
-
-  } catch (e) { console.log(e); }
+  } else {
+    console.log('[BONO 10%] No se pagó por margen <= 0 (tope alcanzado).');
+  }
+} catch (e) {
+  console.log('BONO ref error:', e);
+}
 });
 
 bot.action(/dep:reject:(\d+)/, async (ctx) => {
@@ -525,3 +510,4 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
