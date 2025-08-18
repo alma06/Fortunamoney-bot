@@ -6,6 +6,7 @@ app.use(express.json());
 
 const { Telegraf, Markup } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
+const retiroDraft = {};
 
 // ======== ENV ========
 const BOT_TOKEN       = process.env.BOT_TOKEN;
@@ -444,35 +445,10 @@ bot.on('text', async (ctx, next) => {
     const chatId = ctx.from.id;
     const st = estado[chatId];
 
-    // Solo procesar si el estado está en esta lista
-    if (!['INV_USDT', 'INV_CUP', 'RET', 'RET_DEST'].includes(st)) {
-      return;
-    }
-
-    // ===== RETIRO: elegir método =====
-    if (st === 'RET') {
-      const metodo = ctx.message?.text?.trim();
-      if (!['USDT (BEP20)', 'CUP (Tarjeta)'].includes(metodo)) {
-        await ctx.reply('Método inválido. Usa los botones para elegir.');
-        return;
-      }
-
-      retiroDraft[chatId].metodo = metodo;
-      estado[chatId] = 'RET_DEST';
-
-      if (metodo === 'USDT (BEP20)') {
-        await ctx.reply('Escribe tu wallet USDT (BEP20) donde quieres recibir el pago:');
-      } else {
-        await ctx.reply('Escribe el número de tu tarjeta CUP donde quieres recibir el pago:');
-      }
-
-      return;
-    }
-
     // ===== RETIRO: captura destino (wallet/tarjeta) =====
     if (st === 'RET_DEST') {
       const uid = chatId;
-      const draft = retiroDraft[uid];   // { monto, metodo }
+      const draft = retiroDraft[uid]; // { monto, metodo }
       const destino = (ctx.message?.text ?? '').trim();
 
       if (!draft || !draft.monto || !draft.metodo) {
@@ -499,18 +475,16 @@ bot.on('text', async (ctx, next) => {
       }
 
       const retId = insR.data.id;
-      const fee = RETIRO_FEE_USDT;
 
       await ctx.reply(
         `✅ Retiro creado (pendiente).\n\n` +
         `ID: ${retId}\n` +
         `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
         `Método: ${draft.metodo}\n` +
-        `Destino: ${destino}\n` +
-        `Fee descontado: ${fee.toFixed(2)} USDT`
+        `Destino: ${destino}`
       );
 
-      // Aviso al admin/canal
+      // Notificación a admins
       await bot.telegram.sendMessage(
         ADMIN_GROUP_ID,
         `🆕 RETIRO pendiente\n` +
@@ -518,26 +492,41 @@ bot.on('text', async (ctx, next) => {
         `Usuario: ${uid}\n` +
         `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
         `Método: ${draft.metodo}\n` +
-        `Destino: ${destino}`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '✅ Aprobar retiro', callback_data: `ret:approve:${retId}` }],
-              [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}` }]
-            ]
-          }
-        }
+        `Destino: ${destino}`
       );
 
-      // limpiar estado
       estado[uid] = undefined;
       delete retiroDraft[uid];
+      return;
+    }
+
+    // Aquí recién va el filtro de estados
+    if (!['INV_USDT','INV_CUP','RET'].includes(st)) return;
+
+    // ===== RETIRO: elegir método =====
+    if (st === 'RET') {
+      const metodo = ctx.message?.text?.trim();
+      if (!['USDT (BEP20)', 'CUP (Tarjeta)'].includes(metodo)) {
+        await ctx.reply('Método inválido. Usa los botones para elegir.');
+        return;
+      }
+
+      retiroDraft[chatId].metodo = metodo;
+      estado[chatId] = 'RET_DEST';
+
+      if (metodo === 'USDT (BEP20)') {
+        await ctx.reply('Escribe tu wallet USDT (BEP20) donde quieres recibir el pago:');
+      } else {
+        await ctx.reply('Escribe el número de tu tarjeta CUP donde quieres recibir el pago:');
+      }
+
       return;
     }
   } catch (err) {
     console.error('Error en handler de texto:', err);
   }
 });
+
 // ======== Aprobar/Rechazar Depósito ========
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
   try {
@@ -801,6 +790,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
