@@ -39,7 +39,13 @@ const estado = {}; // 'INV_USDT' | 'INV_CUP' | 'RET'
 // ======== Helpers ========
 function numero(x) { return Number(x ?? 0) || 0; }
 function menu() {
-  return Markup.keyboard([['Invertir'], ['Retirar'], ['Saldo'], ['Referidos']]).resize();
+  return Markup.keyboard([
+    ['Invertir'],
+    ['Retirar'],
+    ['Saldo'],
+    ['Referidos'],
+    ['Ganado total']       // <— nuevo botón
+  ]).resize();
 }
 function top500(bruto) { return numero(bruto) * 5; }
 // progreso: solo lo ganado (saldo + bono) cuenta para el tope
@@ -86,18 +92,20 @@ return {
   }
 }
 
+// === carteraDe (trae también ganado_total) ===
 async function carteraDe(telegram_id) {
   const { data } = await supabase
     .from('carteras')
-    .select('saldo, principal, bruto, bono')
+    .select('saldo, principal, bruto, bono, ganado_total')
     .eq('telegram_id', telegram_id)
     .maybeSingle();
 
   return {
-    saldo: numero(data?.saldo),
-    principal: numero(data?.principal),
-    bruto: numero(data?.bruto),
-    bono: numero(data?.bono)
+    saldo:         numero(data?.saldo),
+    principal:     numero(data?.principal),
+    bruto:         numero(data?.bruto),
+    bono:          numero(data?.bono),
+    ganado_total:  numero(data?.ganado_total)
   };
 }
 
@@ -163,6 +171,25 @@ bot.hears('Saldo', async (ctx) => {
   } catch (e) {
     console.log('ERROR Saldo:', e);
     try { await ctx.reply('Error obteniendo tu saldo. Intenta de nuevo.'); } catch {}
+  }
+});
+
+bot.hears('Ganado total', async (ctx) => {
+  try {
+    const uid = ctx.from.id;
+    await asegurarUsuario(uid);
+    const c = await carteraDe(uid); // ya devuelve ganado_total
+
+    const ganadoTotal = Number(c.ganado_total ?? 0);
+    await ctx.reply(
+      '📈 Ganado total acumulado:\n\n' +
+      `• Total histórico (pagos + bonos): ${ganadoTotal.toFixed(2)} USDT\n` +
+      `\n(Esto es independiente del saldo disponible actual).`,
+      menu()
+    );
+  } catch (e) {
+    console.log('ERROR Ganado total:', e);
+    try { await ctx.reply('Error obteniendo el ganado total. Intenta de nuevo.'); } catch {}
   }
 });
 
@@ -632,6 +659,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
