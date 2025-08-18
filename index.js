@@ -117,6 +117,59 @@ async function notificarNuevaTasa(porcentaje) {
   }
 }
 
+async function obtenerHistoricoTasas() {
+  try {
+    const { data, error } = await supabase
+      .from('tasa_diaria')
+      .select('porcentaje, fecha')
+      .order('fecha', { ascending: false })
+      .limit(90); // Últimos 90 días
+    
+    if (error) {
+      console.log('Error obteniendo histórico de tasas:', error);
+      return [];
+    }
+    
+    // Agrupar por mes
+    const tasasPorMes = {};
+    
+    for (const registro of data || []) {
+      const fecha = new Date(registro.fecha);
+      const mesAno = `${fecha.getFullYear()}-${(fecha.getMonth() + 1).toString().padStart(2, '0')}`;
+      
+      if (!tasasPorMes[mesAno]) {
+        tasasPorMes[mesAno] = {
+          mes: mesAno,
+          tasas: [],
+          promedio: 0,
+          minima: 999,
+          maxima: 0,
+          dias: 0
+        };
+      }
+      
+      const tasa = numero(registro.porcentaje);
+      tasasPorMes[mesAno].tasas.push(tasa);
+      tasasPorMes[mesAno].minima = Math.min(tasasPorMes[mesAno].minima, tasa);
+      tasasPorMes[mesAno].maxima = Math.max(tasasPorMes[mesAno].maxima, tasa);
+      tasasPorMes[mesAno].dias = tasasPorMes[mesAno].tasas.length;
+    }
+    
+    // Calcular promedios
+    for (const mes in tasasPorMes) {
+      const tasas = tasasPorMes[mes].tasas;
+      tasasPorMes[mes].promedio = tasas.reduce((sum, tasa) => sum + tasa, 0) / tasas.length;
+    }
+    
+    // Convertir a array y ordenar por mes descendente
+    return Object.values(tasasPorMes).sort((a, b) => b.mes.localeCompare(a.mes));
+    
+  } catch (e) {
+    console.log('Error en obtenerHistoricoTasas:', e);
+    return [];
+  }
+}
+
 // ======== Helpers ========
 function numero(x) { return Number(x ?? 0) || 0; }
 function menu() {
@@ -125,7 +178,8 @@ function menu() {
     ['Retirar'],
     ['Saldo'],
     ['Referidos'],
-    ['Ganado total']
+    ['Ganado total'],
+    ['Tasa del día', 'Histórico tasas']
   ]).resize();
 }
 
@@ -141,7 +195,7 @@ async function inversionesDe(telegram_id, incluirBonos = true) {
     
   // Si no queremos incluir bonos, filtrarlos
   if (!incluirBonos) {
-    query = query.neq('es_bono_referido', true);
+    query = query.or('es_bono_referido.is.null,es_bono_referido.eq.false');
   }
   
   const { data } = await query.order('id', { ascending: true });
@@ -190,7 +244,7 @@ async function aplicarAceleradorBono(sponsorId, bonoMonto, moneda) {
       .eq('telegram_id', sponsorId)
       .eq('estado', 'aprobado')
       .eq('moneda', moneda)
-      .neq('es_bono_referido', true); // Excluir bonos de referido
+      .or('es_bono_referido.is.null,es_bono_referido.eq.false'); // Excluir bonos de referido
 
     if (!inversiones || inversiones.length === 0) {
       console.log(`[ACELERADOR] ${sponsorId} no tiene inversiones activas en ${moneda}`);
@@ -324,10 +378,12 @@ bot.command(['ayuda', 'help'], async (ctx) => {
     '• **Retirar** - Solicita un retiro de tus ganancias\n' +
     '• **Saldo** - Consulta tu balance actual\n' +
     '• **Referidos** - Obtén tu enlace de referido\n' +
-    '• **Ganado total** - Ve tu histórico de ganancias\n\n' +
+    '• **Ganado total** - Ve tu histórico de ganancias\n' +
+    '• **Tasa del día** - Consulta el porcentaje de ganancias actual\n' +
+    '• **Histórico tasas** - Ve el histórico de tasas por meses\n\n' +
     '💰 **Información importante:**\n' +
     '• Inversión mínima: 25 USDT o 500 CUP\n' +
-    '• Ganancias diarias: Tasa dinámica (consulta /porcentajehoy)\n' +
+    '• Ganancias diarias: Tasa dinámica (consulta "Tasa del día")\n' +
     '• Tope máximo: 500% de tu inversión inicial\n' +
     '• Bono por referidos: 10% del depósito\n\n' +
     '🚀 **Sistema de Acelerador:**\n' +
@@ -480,6 +536,72 @@ bot.hears('Ganado total', async (ctx) => {
   }
 });
 
+bot.hears('Tasa del día', async (ctx) => {
+  try {
+    const porcentaje = await obtenerPorcentajeDelDia();
+    await ctx.reply(
+      `📊 **Tasa del día actual:**\n\n` +
+      `🎯 **${porcentaje}%**\n\n` +
+      `Esta es la tasa de ganancias que se aplicará a tus inversiones hoy.\n\n` +
+      `💡 *La tasa puede variar diariamente según las condiciones del mercado.*`,
+      { parse_mode: 'Markdown', ...menu() }
+    );
+  } catch (e) {
+    console.log('ERROR Tasa del día:', e);
+    try { await ctx.reply('Error obteniendo la tasa del día. Intenta de nuevo.', menu()); } catch {}
+  }
+});
+
+bot.hears('Histórico tasas', async (ctx) => {
+  try {
+    const historicoTasas = await obtenerHistoricoTasas();
+    
+    if (!historicoTasas || historicoTasas.length === 0) {
+      return ctx.reply(
+        '📈 **Histórico de tasas:**\n\n' +
+        'No hay datos históricos disponibles aún.\n\n' +
+        '💡 *El histórico se irá construyendo con el tiempo.*',
+        { parse_mode: 'Markdown', ...menu() }
+      );
+    }
+    
+    let mensaje = '📈 **Histórico de tasas por mes:**\n\n';
+    
+    // Función helper para convertir mes a nombre
+    const getNombreMes = (mesAno) => {
+      const [año, mes] = mesAno.split('-');
+      const meses = [
+        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+      ];
+      return `${meses[parseInt(mes) - 1]} ${año}`;
+    };
+    
+    // Mostrar hasta los últimos 6 meses
+    const mesesAMostrar = historicoTasas.slice(0, 6);
+    
+    for (const mes of mesesAMostrar) {
+      mensaje += `📅 **${getNombreMes(mes.mes)}**\n`;
+      mensaje += `   • Promedio: ${mes.promedio.toFixed(2)}%\n`;
+      mensaje += `   • Mínima: ${mes.minima.toFixed(2)}%\n`;
+      mensaje += `   • Máxima: ${mes.maxima.toFixed(2)}%\n`;
+      mensaje += `   • Días con datos: ${mes.dias}\n\n`;
+    }
+    
+    if (historicoTasas.length > 6) {
+      mensaje += `💡 *Mostrando los últimos 6 meses de un total de ${Math.ceil(historicoTasas.length)} meses con datos.*\n\n`;
+    }
+    
+    mensaje += '📊 *Las tasas varían según las condiciones del mercado.*';
+    
+    await ctx.reply(mensaje, { parse_mode: 'Markdown', ...menu() });
+    
+  } catch (e) {
+    console.log('ERROR Histórico tasas:', e);
+    try { await ctx.reply('Error obteniendo el histórico de tasas. Intenta de nuevo.', menu()); } catch {}
+  }
+});
+
 // ======== Invertir ========
 bot.hears('Invertir', async (ctx) => {
   await ctx.reply('Elige método de inversión:', Markup.inlineKeyboard([
@@ -577,7 +699,9 @@ bot.on('text', async (ctx, next) => {
           '• Retirar\n' +
           '• Saldo\n' +
           '• Referidos\n' +
-          '• Ganado total\n\n' +
+          '• Ganado total\n' +
+          '• Tasa del día\n' +
+          '• Histórico tasas\n\n' +
           '💡 Si no ves el menú, escribe /start para mostrarlo nuevamente.',
           menu()
         );
@@ -1175,7 +1299,7 @@ bot.command('pagarhoy', async (ctx) => {
       .from('depositos')
       .select('*')
       .eq('estado', 'aprobado')
-      .neq('es_bono_referido', true) // Excluir bonos de referido
+      .or('es_bono_referido.is.null,es_bono_referido.eq.false') // Incluir null y false
       .order('id', { ascending: true });
 
     if (error) {
