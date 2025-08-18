@@ -142,6 +142,7 @@ async function obtenerHistoricoTasas() {
           mes: mesAno,
           tasas: [],
           promedio: 0,
+          sumatoria: 0,
           minima: 999,
           maxima: 0,
           dias: 0
@@ -155,10 +156,11 @@ async function obtenerHistoricoTasas() {
       tasasPorMes[mesAno].dias = tasasPorMes[mesAno].tasas.length;
     }
     
-    // Calcular promedios
+    // Calcular promedios y sumatoria
     for (const mes in tasasPorMes) {
       const tasas = tasasPorMes[mes].tasas;
       tasasPorMes[mes].promedio = tasas.reduce((sum, tasa) => sum + tasa, 0) / tasas.length;
+      tasasPorMes[mes].sumatoria = tasas.reduce((sum, tasa) => sum + tasa, 0);
     }
     
     // Convertir a array y ordenar por mes descendente
@@ -216,26 +218,24 @@ async function saldosPorMoneda(telegram_id) {
   return saldos;
 }
 
-// Verificar si una inversión alcanzó el tope 500% (considerando acelerador)
+// Verificar si una inversión alcanzó el tope 500% (sin acelerador)
 function topeAlcanzado(inversion) {
   const montoBase = numero(inversion.monto_origen);
-  const acelerador = numero(inversion.acelerador_usado) || 0;
-  const tope = montoBase * 5 - acelerador; // Tope reducido por acelerador
+  const tope = montoBase * 5; // Tope normal del 500%
   const ganado = numero(inversion.ganado_total);
   return ganado >= tope;
 }
 
-// Calcular progreso al 500% de una inversión (considerando acelerador)
+// Calcular progreso al 500% de una inversión (sin acelerador)
 function progresoInversion(inversion) {
   const montoBase = numero(inversion.monto_origen);
-  const acelerador = numero(inversion.acelerador_usado) || 0;
-  const tope = montoBase * 5 - acelerador; // Tope reducido por acelerador
+  const tope = montoBase * 5; // Tope normal del 500%
   const ganado = numero(inversion.ganado_total);
   return tope > 0 ? (ganado / tope) * 100 : 0;
 }
 
-// Aplicar acelerador de bono de referido a las inversiones del sponsor
-async function aplicarAceleradorBono(sponsorId, bonoMonto, moneda) {
+// Aplicar bono de referido a las inversiones del sponsor (suma al progreso)
+async function aplicarBonoReferido(sponsorId, bonoMonto, moneda) {
   try {
     // Obtener todas las inversiones activas del sponsor en la misma moneda (sin bonos)
     const { data: inversiones } = await supabase
@@ -247,7 +247,7 @@ async function aplicarAceleradorBono(sponsorId, bonoMonto, moneda) {
       .or('es_bono_referido.is.null,es_bono_referido.eq.false'); // Excluir bonos de referido
 
     if (!inversiones || inversiones.length === 0) {
-      console.log(`[ACELERADOR] ${sponsorId} no tiene inversiones activas en ${moneda}`);
+      console.log(`[BONO] ${sponsorId} no tiene inversiones activas en ${moneda}`);
       return;
     }
 
@@ -255,7 +255,7 @@ async function aplicarAceleradorBono(sponsorId, bonoMonto, moneda) {
     const inversionesActivas = inversiones.filter(inv => !topeAlcanzado(inv));
     
     if (inversionesActivas.length === 0) {
-      console.log(`[ACELERADOR] ${sponsorId} no tiene inversiones sin alcanzar tope en ${moneda}`);
+      console.log(`[BONO] ${sponsorId} no tiene inversiones sin alcanzar tope en ${moneda}`);
       return;
     }
 
@@ -263,19 +263,30 @@ async function aplicarAceleradorBono(sponsorId, bonoMonto, moneda) {
     const bonoPorInversion = bonoMonto / inversionesActivas.length;
 
     for (const inv of inversionesActivas) {
-      const aceleradorActual = numero(inv.acelerador_usado) || 0;
-      const nuevoAcelerador = aceleradorActual + bonoPorInversion;
+      const ganadoDisponibleActual = numero(inv.ganado_disponible);
+      const ganadoTotalActual = numero(inv.ganado_total);
+      const montoBase = numero(inv.monto_origen);
+      const tope = montoBase * 5; // Tope normal del 500%
+      
+      // Verificar cuánto se puede agregar sin exceder el tope
+      const margenDisponible = tope - ganadoTotalActual;
+      const bonoAAplicar = Math.min(bonoPorInversion, margenDisponible);
+      
+      if (bonoAAplicar > 0) {
+        await supabase.from('depositos')
+          .update({ 
+            ganado_disponible: ganadoDisponibleActual + bonoAAplicar,
+            ganado_total: ganadoTotalActual + bonoAAplicar
+          })
+          .eq('id', inv.id);
 
-      await supabase.from('depositos')
-        .update({ acelerador_usado: nuevoAcelerador })
-        .eq('id', inv.id);
-
-      console.log(`[ACELERADOR] Inv #${inv.id}: +${bonoPorInversion.toFixed(2)} ${moneda}, total acelerador: ${nuevoAcelerador.toFixed(2)}`);
+        console.log(`[BONO] Inv #${inv.id}: +${bonoAAplicar.toFixed(2)} ${moneda} al progreso`);
+      }
     }
 
-    console.log(`[ACELERADOR] Distribuidos ${bonoMonto} ${moneda} entre ${inversionesActivas.length} inversiones de ${sponsorId}`);
+    console.log(`[BONO] Distribuidos ${bonoMonto} ${moneda} entre ${inversionesActivas.length} inversiones de ${sponsorId}`);
   } catch (e) {
-    console.log('[ACELERADOR] Error aplicando acelerador:', e);
+    console.log('[BONO] Error aplicando bono:', e);
   }
 }
 
@@ -343,7 +354,7 @@ bot.start(async (ctx) => {
     const uid = ctx.from.id;
     let sponsor = null;
     const payload = ctx.startPayload || '';  // soporta /start ref_XXXX
-    const m = payload.match(/^ref_(\d{5,})$/i);
+    const m = payload.match(/^ref_(\d+)$/i); // Cambiado: cualquier cantidad de dígitos
     if (m) {
       sponsor = Number(m[1]);
       if (sponsor === uid) sponsor = null; // no auto-referido
@@ -386,11 +397,11 @@ bot.command(['ayuda', 'help'], async (ctx) => {
     '• Ganancias diarias: Tasa dinámica (consulta "Tasa del día")\n' +
     '• Tope máximo: 500% de tu inversión inicial\n' +
     '• Bono por referidos: 10% del depósito\n\n' +
-    '🚀 **Sistema de Acelerador:**\n' +
-    '• Los bonos de referidos actúan como "acelerador"\n' +
+    '🚀 **Sistema de Bonos de Referido:**\n' +
+    '• Los bonos se suman directamente al progreso de tus inversiones\n' +
     '• Se distribuyen entre todas tus inversiones activas\n' +
-    '• Reducen el tope del 500% de cada inversión\n' +
-    '• Te permiten alcanzar el límite más rápido\n\n' +
+    '• Te ayudan a alcanzar el 500% más rápido\n' +
+    '• Disponibles inmediatamente para retirar\n\n' +
     '🔧 **Comandos útiles:**\n' +
     '• /start - Reiniciar el bot\n' +
     '• /menu - Mostrar el menú\n' +
@@ -441,13 +452,9 @@ bot.hears('Saldo', async (ctx) => {
       for (const inv of porMoneda.USDT) {
         const progreso = progresoInversion(inv);
         const disponible = numero(inv.ganado_disponible);
-        const acelerador = numero(inv.acelerador_usado) || 0;
         mensaje += `  • Inv #${inv.id}: ${numero(inv.monto_origen).toFixed(2)} USDT\n`;
         mensaje += `    Disponible: ${disponible.toFixed(2)} USDT\n`;
         mensaje += `    Progreso: ${progreso.toFixed(1)}%\n`;
-        if (acelerador > 0) {
-          mensaje += `    🚀 Acelerador: ${acelerador.toFixed(2)} USDT\n`;
-        }
       }
       mensaje += `  🟢 **Total USDT: ${saldos.USDT.toFixed(2)}**\n\n`;
     }
@@ -458,13 +465,9 @@ bot.hears('Saldo', async (ctx) => {
       for (const inv of porMoneda.CUP) {
         const progreso = progresoInversion(inv);
         const disponible = numero(inv.ganado_disponible);
-        const acelerador = numero(inv.acelerador_usado) || 0;
         mensaje += `  • Inv #${inv.id}: ${numero(inv.monto_origen).toFixed(0)} CUP\n`;
         mensaje += `    Disponible: ${disponible.toFixed(0)} CUP\n`;
         mensaje += `    Progreso: ${progreso.toFixed(1)}%\n`;
-        if (acelerador > 0) {
-          mensaje += `    🚀 Acelerador: ${acelerador.toFixed(0)} CUP\n`;
-        }
       }
       mensaje += `  🟢 **Total CUP: ${saldos.CUP.toFixed(0)}**\n\n`;
     }
@@ -583,6 +586,7 @@ bot.hears('Histórico tasas', async (ctx) => {
     for (const mes of mesesAMostrar) {
       mensaje += `📅 **${getNombreMes(mes.mes)}**\n`;
       mensaje += `   • Promedio: ${mes.promedio.toFixed(2)}%\n`;
+      mensaje += `   • Sumatoria: ${mes.sumatoria.toFixed(2)}%\n`;
       mensaje += `   • Mínima: ${mes.minima.toFixed(2)}%\n`;
       mensaje += `   • Máxima: ${mes.maxima.toFixed(2)}%\n`;
       mensaje += `   • Días con datos: ${mes.dias}\n\n`;
@@ -1034,48 +1038,34 @@ try {
   if (!sponsorId || Number.isNaN(sponsorId) || sponsorId === d.telegram_id) {
     console.log('[BONO] sin patrocinador válido; no se paga 10%.');
   } else {
+    // Verificar que el sponsor existe
+    const { data: sponsorExiste } = await supabase
+      .from('usuarios')
+      .select('telegram_id')
+      .eq('telegram_id', sponsorId)
+      .maybeSingle();
+
+    if (!sponsorExiste) {
+      console.log(`[BONO] sponsor ${sponsorId} no existe en la base de datos`);
+      return;
+    }
+
     // 10% del depósito en la misma moneda que invirtió el referido
     const bonoMonto = numero(d.monto_origen) * 0.10;
     const monedaBono = d.moneda; // Usar la misma moneda del depósito
 
-    // Si es CUP, creamos una inversión ficticia de bono en CUP
-    // Si es USDT, lo manejamos como antes en la cartera de bonos
-    if (monedaBono === 'CUP') {
-      // Crear inversión ficticia de bono en CUP
-      await supabase.from('depositos').insert([{
-        telegram_id: sponsorId,
-        monto: bonoMonto / (d.tasa_usdt || CUP_USDT_RATE), // Equivalente en USDT para monto
-        moneda: 'CUP',
-        monto_origen: bonoMonto,
-        tasa_usdt: d.tasa_usdt || CUP_USDT_RATE,
-        estado: 'aprobado',
-        ganado_disponible: bonoMonto, // El bono está disponible inmediatamente
-        ganado_total: bonoMonto,
-        fecha_creacion: new Date().toISOString(),
-        fecha_aprobacion: new Date().toISOString(),
-        es_bono_referido: true // Marcar como bono para diferenciarlo
-      }]);
-    } else {
-      // USDT: usar el sistema de cartera como antes
-      await asegurarUsuario(sponsorId);
-      const carS = await carteraBonosDe(sponsorId);
+    console.log(`[BONO] Aplicando bono de ${bonoMonto.toFixed(2)} ${monedaBono} a ${sponsorId}`);
 
-      await actualizarCarteraBonos(sponsorId, {
-        saldo: carS.saldo + bonoMonto,
-        bono:  carS.bono  + bonoMonto,
-        ganado_total: carS.ganado_total + bonoMonto
-      });
-    }
+    // Aplicar el bono directamente al progreso de las inversiones del sponsor
+    await aplicarBonoReferido(sponsorId, bonoMonto, monedaBono);
 
-    // Aplicar el bono como acelerador para reducir el tope de las inversiones activas del sponsor
-    await aplicarAceleradorBono(sponsorId, bonoMonto, monedaBono);
-
+    // Notificar al sponsor
     try {
       await bot.telegram.sendMessage(
         sponsorId,
         `🎉 Bono de referido acreditado: ${bonoMonto.toFixed(monedaBono === 'USDT' ? 2 : 0)} ${monedaBono}\n` +
         `Por el depósito de tu referido ${d.telegram_id}.\n` +
-        `Este bono también actúa como acelerador para reducir el tope del 500% en tus inversiones activas de ${monedaBono}.`
+        `Este bono se ha sumado directamente al progreso de tus inversiones activas de ${monedaBono}.`
       );
     } catch (eMsg) {
       console.log('[BONO] no pude notificar al sponsor:', eMsg?.message || eMsg);
@@ -1325,11 +1315,10 @@ bot.command('pagarhoy', async (ctx) => {
         continue;
       }
 
-      // Verificar tope 500% considerando acelerador
-      const acelerador = numero(inv.acelerador_usado) || 0;
-      const tope = montoBase * 5 - acelerador; // Tope reducido por acelerador
+      // Verificar tope 500% (sin acelerador)
+      const tope = montoBase * 5;
       if (ganadoTotal >= tope) {
-        log.push(`Inv #${inv.id}: tope alcanzado (${ganadoTotal.toFixed(2)}/${tope.toFixed(2)}, acelerador: ${acelerador.toFixed(2)})`);
+        log.push(`Inv #${inv.id}: tope alcanzado (${ganadoTotal.toFixed(2)}/${tope.toFixed(2)})`);
         continue;
       }
 
