@@ -6,7 +6,8 @@ app.use(express.json());
 
 const { Telegraf, Markup } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
-const retiroDraft = {};
+// Draft temporal para retiros (monto + método + luego destino)
+const retiroDraft = globalThis.retiroDraft || (globalThis.retiroDraft = {});
 
 // ======== ENV ========
 const BOT_TOKEN       = process.env.BOT_TOKEN;
@@ -787,6 +788,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
