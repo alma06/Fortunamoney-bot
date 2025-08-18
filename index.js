@@ -417,10 +417,11 @@ return;
 
 } catch (e) { // <-- catch EXTERNO del handler de texto
   console.log('Error en handler de texto:', e);
-  try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
-}
-}); // <-- cierre ÚNICO del bot.on('text', ...)
-
+  try { 
+    await ctx.reply('Ocurrió un error procesando tu mensaje.');
+  } catch {}
+}  // ← solo cerrar el catch externo, SIN ");"
+}); // ← cierre único de bot.on('text'...
 // ======== Handler de Foto (comprobante) ========
 bot.on('photo', async (ctx) => {
   try {
@@ -805,6 +806,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
