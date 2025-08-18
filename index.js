@@ -184,7 +184,7 @@ bot.hears('Saldo', async (ctx) => {
     const total = c.principal + c.saldo + c.bono;
 
     const top  = top500(c.bruto);               // tope = bruto * 5
-    const prog = top > 0 ? (c.ganado_total / top) * 100 : 0;  // 🔥 progreso con lo ACUMULADO
+    const prog = top > 0 ? ((c.saldo + c.bono) / top) * 100 : 0;  // 🔥 progreso con saldo + bonos
 
     await ctx.reply(
       'Tu saldo (en USDT):\n\n' +
