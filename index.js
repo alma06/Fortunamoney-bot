@@ -27,7 +27,7 @@ const MIN_INVERSION    = Number(process.env.MIN_INVERSION || 25);  // USDT
 const RETIRO_FEE_USDT  = Number(process.env.RETIRO_FEE_USDT || 1);
 const CUP_USDT_RATE    = Number(process.env.CUP_USDT_RATE  || 400); // 1 USDT = 400 CUP
 
-if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID || !PAYMENT_CHANNEL || !HOST_URL) {
+if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID || PAYMENT_CHANNEL === 0 || !HOST_URL) {
   console.log('Faltan variables de entorno obligatorias.');
   process.exit(1);
 }
