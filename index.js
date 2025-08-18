@@ -375,16 +375,19 @@ bot.on('text', async (ctx, next) => {
   return;
 }
 
-      const retId = insR.data.id;
+ // ===== Aviso al usuario: retiro creado =====
+const retId = insR.data.id;
+const fee = RETIRO_FEE_USDT;
+
 await ctx.reply(
-  `✅ Retiro creado (pendiente).\n\n` +
-  `ID: ${retId}\n` +
+  '✅ Retiro creado (pendiente).\n\n' +
+  `ID: #${retId}\n` +
   `Monto: ${monto.toFixed(2)} USDT\n` +
   `Fee descontado: ${fee.toFixed(2)} USDT`,
-  menu
-); // <-- este es el cierre de ctx.reply() del "Retiro creado (pendiente)"
+  menu() // <<--- IMPORTANTE: con paréntesis
+);
 
-// === Aviso detallado al admin ===
+// ===== Aviso detallado al admin/canal =====
 try {
   await bot.telegram.sendMessage(
     ADMIN_GROUP_ID,
@@ -392,7 +395,7 @@ try {
       '📣 RETIRO pendiente',
       `ID: #${retId}`,
       `Usuario: ${chatId}`,
-      `Monto: ${monto.toFixed(2)} USDT`
+      `Monto: ${monto.toFixed(2)} USDT`,
     ].join('\n'),
     {
       reply_markup: {
@@ -802,6 +805,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
