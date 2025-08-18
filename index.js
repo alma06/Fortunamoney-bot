@@ -437,77 +437,77 @@ bot.on('photo', async (ctx) => {
   }
 });
 
-// ===== RETIRO: captura destino (wallet/tarjeta) y crea retiro =====
-if (st === 'RET_DEST') {
+// ===== RETIRO: captura destino (wallet/tarjeta) =====
+bot.on('text', async (ctx) => {
   const uid = ctx.from.id;
-  const draft = retiroDraft[uid];
-  const destino = (ctx.message?.text ?? '').trim();
+  const st = estado[uid];
 
-  if (!draft || !draft.monto || !draft.metodo) {
-    await ctx.reply('No encuentro tu solicitud. Vuelve a iniciar con "Retirar".');
-    estado[uid] = undefined;
-    return;
-  }
+  if (st === 'RET_DEST') {
+    const draft = retiroDraft[uid];
+    const destino = (ctx.message?.text ?? '').trim();
 
-  // Crear retiro con método y destino
-  const insR = await supabase.from('retiros').insert([{
-    telegram_id: uid,
-    monto: numero(draft.monto),
-    estado: 'pendiente',
-    metodo: draft.metodo,     // << NUEVO CAMPO
-    destino: destino          // << NUEVO CAMPO
-  }]).select('id').single();
+    if (!draft || !draft.monto || !draft.metodo) {
+      await ctx.reply('No encuentro tu solicitud. Vuelve a iniciar con "Retirar".');
+      estado[uid] = undefined;
+      return;
+    }
 
-  if (insR.error) {
-    console.log('Error insert retiro:', insR.error);
-    await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
-    estado[uid] = undefined;
-    return;
-  }
+    // Crear retiro en supabase
+    const insR = await supabase.from('retiros').insert([{
+      telegram_id: uid,
+      monto: numero(draft.monto),
+      estado: 'pendiente',
+      metodo: draft.metodo,
+      destino: destino
+    }]).select('id').single();
 
-  const fee = RETIRO_FEE_USDT;
-  const retId = insR.data.id;
+    if (insR.error) {
+      console.log('Error insert retiro:', insR.error);
+      await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
+      estado[uid] = undefined;
+      return;
+    }
 
-  await ctx.reply(
-    `✅ Retiro creado (pendiente).\n\n` +
-    `ID: ${retId}\n` +
-    `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
-    `Método: ${draft.metodo}\n` +
-    `Destino: ${destino}\n` +
-    `Fee descontado: ${fee.toFixed(2)} USDT`,
-    menu()
-  );
+    const fee = RETIRO_FEE_USDT;
+    const retId = insR.data.id;
 
-  // Aviso detallado al admin
-  try {
-    await bot.telegram.sendMessage(
-      ADMIN_GROUP_ID,
-      `🆕 RETIRO pendiente\n` +
-      `ID: #${retId}\n` +
-      `Usuario: ${uid}\n` +
+    await ctx.reply(
+      `✅ Retiro creado (pendiente).\n\n` +
+      `ID: ${retId}\n` +
       `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
       `Método: ${draft.metodo}\n` +
       `Destino: ${destino}\n` +
-      `Fee: ${fee.toFixed(2)} USDT`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '✅ Aprobar retiro',  callback_data: `ret:approve:${retId}` }],
-            [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}`  }]
-          ]
-        }
-      }
+      `Fee descontado: ${fee.toFixed(2)} USDT`,
+      menu
     );
-  } catch (e3) {
-    console.log('No pude avisar al admin (retiro):', e3?.message || e3);
+
+    // Aviso detallado al admin
+    try {
+      await bot.telegram.sendMessage(
+        ADMIN_GROUP_ID,
+        `📤 RETIRO pendiente\n` +
+        `ID: #${retId}\n` +
+        `Usuario: ${uid}\n` +
+        `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
+        `Método: ${draft.metodo}\n` +
+        `Destino: ${destino}\n` +
+        `Fee: ${fee.toFixed(2)} USDT`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Aprobar retiro', callback_data: `ret:approve:${retId}` }],
+              [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}` }]
+            ]
+          }
+        }
+      );
+    } catch (e) {
+      console.error('Error notificando al canal de retiros:', e);
+    }
+
+    estado[uid] = undefined;
   }
-
-  // Limpiar estado
-  delete retiroDraft[uid];
-  estado[uid] = undefined;
-  return;
-}
-
+});
 
 // ======== Aprobar/Rechazar Depósito ========
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
@@ -772,6 +772,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
