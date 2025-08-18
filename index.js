@@ -486,54 +486,117 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
   } catch (e) { console.log(e); }
 });
 
-// ======== /pagarhoy (pago manual de ganancias) ========
-// Regla: principal < 500 => 1.5% ; principal >= 500 => 2%
-// Puedes ejecutarlo N veces al día; siempre respeta el tope 500% con GANADO (saldo+bono).
+// ===== Helpers por si faltan =====
+function numero(x) { return Number(x || 0); }
+function top500(bruto) { return numero(bruto) * 5; }
+
+// ======== /pagarhoy (robusto, con feedback inmediato) ========
 bot.command('pagarhoy', async (ctx) => {
-  if (ctx.from.id !== ADMIN_ID) return ctx.reply('Solo admin.');
   try {
-    const { data: carteras } = await supabase
+    // 1) Validar admin y avisar que empezó
+    const uid = ctx.from?.id;
+    if (uid !== ADMIN_ID) {
+      await ctx.reply(`Solo admin. Tu id: ${uid}`);
+      return;
+    }
+    await ctx.reply('⏳ Procesando pagos del día...');
+
+    // 2) Leer carteras
+    const { data: carteras, error: eSel } = await supabase
       .from('carteras')
       .select('telegram_id, saldo, principal, bruto, bono');
 
-    if (!carteras || !carteras.length) return ctx.reply('No hay carteras.');
+    if (eSel) {
+      console.log('pagarhoy select error:', eSel);
+      await ctx.reply('❌ Error leyendo carteras (revisa logs).');
+      return;
+    }
+    if (!carteras || carteras.length === 0) {
+      await ctx.reply('No hay carteras para pagar.');
+      return;
+    }
 
+    // 3) Bucle de pago
     let totalPagado = 0;
     let cuentasPagadas = 0;
+
+    // Resumen por rangos
+    let c15 = 0, pag15 = 0, tot15 = 0;  // principal < 500 (1.5%)
+    let c20 = 0, pag20 = 0, tot20 = 0;  // principal >= 500 (2%)
+    let capados = 0;                    // pagos reducidos por tope
+    let sinMargen = 0;                  // ya en tope, no se pudo pagar
 
     for (const c of carteras) {
       const principal = numero(c.principal);
       const bruto = numero(c.bruto);
+      const saldo = numero(c.saldo);
+      const bono = numero(c.bono);
+
       if (principal <= 0 || bruto <= 0) continue;
 
       const rate = principal >= 500 ? 0.02 : 0.015;
-      let pago = principal * rate;
+      if (rate === 0.015) c15++; else c20++;
 
-      // CAP por tope: solo cuenta lo ganado (saldo+bono)
-      const top = top500(bruto);
-      const ganado = numero(c.saldo) + numero(c.bono);
-      const margen = top - ganado;
-      if (margen <= 0) continue;
+      const pagoTeorico = principal * rate;     // 1.5% ó 2% del principal
+      const limite = top500(bruto);            // 5x BRUTO
+      const ganado = saldo + bono;             // solo lo ganado cuenta al tope
+      const margen = limite - ganado;          // cuánto me queda para llegar al tope
 
-      if (pago > margen) pago = margen;
-      if (pago <= 0) continue;
+      if (margen <= 0) { sinMargen++; continue; }
 
-      await actualizarCartera(c.telegram_id, { saldo: numero(c.saldo) + pago });
-      totalPagado += pago;
+      const pagoFinal = Math.max(0, Math.min(pagoTeorico, margen));
+      if (pagoFinal <= 0) { sinMargen++; continue; }
+
+      if (pagoFinal < pagoTeorico) capados++;
+
+      // Actualizar saldo
+      const nuevoSaldo = saldo + pagoFinal;
+      const { error: eUpd } = await supabase
+        .from('carteras')
+        .update({ saldo: nuevoSaldo })
+        .eq('telegram_id', c.telegram_id);
+
+      if (eUpd) {
+        console.log('pagarhoy update error:', eUpd, 'tg:', c.telegram_id);
+        continue; // saltamos esa cuenta pero seguimos
+      }
+
+      totalPagado += pagoFinal;
       cuentasPagadas += 1;
 
+      if (rate === 0.015) { pag15++; tot15 += pagoFinal; }
+      else { pag20++; tot20 += pagoFinal; }
+
+      // Aviso al usuario (opcional)
       try {
         await bot.telegram.sendMessage(
           c.telegram_id,
-          `💸 Pago diario acreditado: ${pago.toFixed(2)} USDT`
+          `💸 Pago diario acreditado: ${pagoFinal.toFixed(2)} USDT`
         );
-      } catch {}
+      } catch (eMsg) { console.log('no pude avisar a', c.telegram_id, eMsg?.message); }
     }
 
-    await ctx.reply(`✅ /pagarhoy completado.\nCuentas pagadas: ${cuentasPagadas}\nTotal pagado: ${totalPagado.toFixed(2)} USDT`);
+    // 4) Resumen
+    const resumen =
+      `✅ /pagarhoy completado\n\n` +
+      `Cuentas pagadas: ${cuentasPagadas}\n` +
+      `Total pagado: ${totalPagado.toFixed(2)} USDT\n` +
+      `Capados por tope: ${capados}\n` +
+      `Sin margen (ya al tope): ${sinMargen}\n\n` +
+      `— < 500 (1.5%):\n` +
+      `   Usuarios en rango: ${c15}\n` +
+      `   Pagados: ${pag15}\n` +
+      `   Total pagado: ${tot15.toFixed(2)} USDT\n\n` +
+      `— ≥ 500 (2%):\n` +
+      `   Usuarios en rango: ${c20}\n` +
+      `   Pagados: ${pag20}\n` +
+      `   Total pagado: ${tot20.toFixed(2)} USDT`;
+
+    await ctx.reply(resumen);
+
   } catch (e) {
-    console.log('/pagarhoy error:', e);
-    try { await ctx.reply('Error en pagarhoy. Revisa logs.'); } catch {}
+    console.log('/pagarhoy fatal:', e);
+    try { await ctx.reply('❌ Error inesperado en /pagarhoy. Revisa logs.'); } catch {}
   }
 });
 
@@ -566,3 +629,4 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
