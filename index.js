@@ -15,6 +15,7 @@ const SUPABASE_URL    = process.env.SUPABASE_URL;
 const SUPABASE_KEY    = process.env.SUPABASE_KEY;
 const ADMIN_ID        = Number(process.env.ADMIN_ID || 0);
 const ADMIN_GROUP_ID  = Number(process.env.ADMIN_GROUP_ID || 0);
+const PAYMENT_CHANNEL_ID  = Number(process.env.PAYMENT_CHANNEL_ID || 0);
 const WALLET_USDT     = process.env.WALLET_USDT || 'WALLET_NO_CONFIGURADA';
 const WALLET_CUP      = process.env.WALLET_CUP  || 'TARJETA_NO_CONFIGURADA';
 const HOST_URL        = process.env.HOST_URL || ''; // https://tu-app.onrender.com
@@ -26,7 +27,7 @@ const MIN_INVERSION    = Number(process.env.MIN_INVERSION || 25);  // USDT
 const RETIRO_FEE_USDT  = Number(process.env.RETIRO_FEE_USDT || 1);
 const CUP_USDT_RATE    = Number(process.env.CUP_USDT_RATE  || 400); // 1 USDT = 400 CUP
 
-if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID || !HOST_URL) {
+if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID || !HOST_URL || !PAYMENT_CHANNEL_ID) {
   console.log('Faltan variables de entorno obligatorias.');
   process.exit(1);
 }
@@ -1055,6 +1056,26 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
       r.telegram_id, 
       `✅ Retiro aprobado: ${r.monto.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}`
     );
+
+    // Notificar al canal de pagos
+    try {
+      const mensajePago = [
+        '💸 RETIRO APROBADO',
+        `ID: #${rid}`,
+        `Usuario: ${r.telegram_id}`,
+        `Monto: ${r.monto.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}`,
+        `Método: ${moneda}`,
+        `Destino: ${r.destino}`,
+        `${fee > 0 ? `Fee aplicado: ${fee} ${moneda}` : 'Sin fee'}`,
+        `Total debitado: ${totalDebitar.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}`,
+        `Estado: PAGADO ✅`
+      ].join('\n');
+
+      await bot.telegram.sendMessage(PAYMENT_CHANNEL_ID, mensajePago);
+    } catch (e) {
+      console.log('Error notificando al canal de pagos:', e);
+    }
+
     await ctx.editMessageReplyMarkup();
     await ctx.reply(`Retiro #${rid} aprobado.`);
   } catch (e) { console.log(e); }
@@ -1064,7 +1085,41 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
   try {
     if (ctx.from.id !== ADMIN_ID && ctx.chat?.id !== ADMIN_GROUP_ID) return;
     const rid = Number(ctx.match[1]);
+    
+    // Obtener datos del retiro antes de rechazar
+    const { data: r } = await supabase.from('retiros').select('*').eq('id', rid).single();
+    
     await supabase.from('retiros').update({ estado: 'rechazado' }).eq('id', rid);
+
+    // Notificar al usuario del rechazo
+    if (r) {
+      try {
+        await bot.telegram.sendMessage(
+          r.telegram_id,
+          `❌ Retiro rechazado\n\nID: #${rid}\nMonto: ${r.monto.toFixed((r.moneda || r.metodo) === 'USDT' ? 2 : 0)} ${r.moneda || r.metodo}\n\nContacta al administrador para más información.`
+        );
+      } catch (e) {
+        console.log('Error notificando rechazo al usuario:', e);
+      }
+
+      // Notificar al canal de pagos
+      try {
+        const mensajePago = [
+          '❌ RETIRO RECHAZADO',
+          `ID: #${rid}`,
+          `Usuario: ${r.telegram_id}`,
+          `Monto: ${r.monto.toFixed((r.moneda || r.metodo) === 'USDT' ? 2 : 0)} ${r.moneda || r.metodo}`,
+          `Método: ${r.moneda || r.metodo}`,
+          `Destino: ${r.destino}`,
+          `Estado: RECHAZADO ❌`
+        ].join('\n');
+
+        await bot.telegram.sendMessage(PAYMENT_CHANNEL_ID, mensajePago);
+      } catch (e) {
+        console.log('Error notificando rechazo al canal de pagos:', e);
+      }
+    }
+
     await ctx.editMessageReplyMarkup();
     await ctx.reply(`Retiro #${rid} rechazado.`);
   } catch (e) { console.log(e); }
