@@ -104,7 +104,6 @@ async function carteraDe(telegram_id) {
 async function actualizarCartera(telegram_id, patch) {
   const cur = await carteraDe(telegram_id);
   const row = {
-    const row = {
   telegram_id,
   saldo:        (patch.saldo        !== undefined) ? numero(patch.saldo)        : cur.saldo,
   principal:    (patch.principal    !== undefined) ? numero(patch.principal)    : cur.principal,
@@ -633,6 +632,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
