@@ -233,15 +233,18 @@ bot.hears('Retirar', async (ctx) => {
 bot.on('text', async (ctx, next) => {
   try {
     const chatId = ctx.from.id;
-    const txtRaw = (ctx.message?.text ?? '').trim();
+const st = estado[chatId];
 
-    // Si empieza con "/", lo mandamos al siguiente handler (como /pagarhoy)
-    if (txtRaw.startsWith('/')) return next();
+// si empieza con comando, deja pasar a otros handlers
+const txtRaw = (ctx.message?.text ?? '').trim();
+if (txtRaw.startsWith('/')) return next();
 
-    const st = estado[chatId];
-    if (!['INV_USDT','INV_CUP','RET','RET_DEST'].includes(st)) return;
-
+// si no estamos en un estado que maneje números/retiros,
+// DEJAMOS PASAR el mensaje a otros handlers (como hears('Retirar'))
+const allowed = ['INV_USDT','INV_CUP','RET','RET_DEST','RET_ELIGE_METODO'];
+if (!allowed.includes(st)) return next();
     const txt = txtRaw.replace(',', '.');
+    
     const monto = Number(txt);
     if (isNaN(monto) || monto <= 0) {
       await ctx.reply('Monto inválido. Intenta de nuevo.');
@@ -788,6 +791,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
