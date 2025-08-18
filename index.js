@@ -392,7 +392,7 @@ try {
   await bot.telegram.sendMessage(
     ADMIN_GROUP_ID,
     [
-      `📤 RETIRO pendiente`,
+      '🧾 RETIRO pendiente',
       `ID: #${retId}`,
       `Usuario: ${chatId}`,
       `Monto: ${monto.toFixed(2)} USDT`,
@@ -401,9 +401,9 @@ try {
       reply_markup: {
         inline_keyboard: [
           [{ text: '✅ Aprobar retiro', callback_data: `ret:approve:${retId}` }],
-          [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}` }]
-        ]
-      }
+          [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}` }],
+        ],
+      },
     }
   );
 } catch (e) {
@@ -417,11 +417,11 @@ return;
 
 } catch (e) { // <-- catch EXTERNO del handler de texto
   console.log('Error en handler de texto:', e);
-  try { 
-    await ctx.reply('Ocurrió un error procesando tu mensaje.');
-  } catch {}
-}  // ← solo cerrar el catch externo, SIN ");"
-}); // ← cierre único de bot.on('text'...
+  try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
+}
+// <-- cierre ÚNICO del bot.on('text', …)
+});
+
 // ======== Handler de Foto (comprobante) ========
 bot.on('photo', async (ctx) => {
   try {
@@ -806,6 +806,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
