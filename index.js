@@ -253,7 +253,6 @@ bot.on('text', async (ctx, next) => {
     try { await ctx.reply('Ocurrió un error.'); } catch {}
     return; // este sí puede cortar
   }
-});
 
     // ===== INVERTIR =====
     if (st === 'INV_USDT' || st === 'INV_CUP') {
@@ -793,6 +792,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
