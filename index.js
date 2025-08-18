@@ -382,16 +382,18 @@ await ctx.reply(
   `Monto: ${monto.toFixed(2)} USDT\n` +
   `Fee descontado: ${fee.toFixed(2)} USDT`,
   menu
-);
+); // <-- este es el cierre de ctx.reply() del "Retiro creado (pendiente)"
 
 // === Aviso detallado al admin ===
 try {
   await bot.telegram.sendMessage(
     ADMIN_GROUP_ID,
-    `📣 RETIRO pendiente
-ID: #${retId}
-Usuario: ${chatId}
-Monto: ${monto.toFixed(2)} USDT`,
+    [
+      '📣 RETIRO pendiente',
+      `ID: #${retId}`,
+      `Usuario: ${chatId}`,
+      `Monto: ${monto.toFixed(2)} USDT`
+    ].join('\n'),
     {
       reply_markup: {
         inline_keyboard: [
@@ -410,7 +412,7 @@ estado[chatId] = undefined;
 delete retiroDraft[chatId];
 return;
 
-} catch (e) { // <-- catch EXTERNO del handler bot.on('text', ...)
+} catch (e) { // <-- catch EXTERNO del handler de texto
   console.log('Error en handler de texto:', e);
   try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
 }
@@ -800,6 +802,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
