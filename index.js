@@ -64,12 +64,20 @@ async function asegurarUsuario(telegram_id, referido_por = null) {
     await supabase.from('usuarios').update({ patrocinador_id: referido_por }).eq('telegram_id', telegram_id);
   }
 
-  // carteras
-  const { data: c } = await supabase
-    .from('carteras')
-    .select('telegram_id')
-    .eq('telegram_id', telegram_id)
-    .maybeSingle();
+  // carteraDe(telegram_id)
+const { data } = await supabase
+  .from('carteras')
+  .select('saldo, principal, bruto, bono, ganado_total')
+  .eq('telegram_id', telegram_id)
+  .maybeSingle();
+
+return {
+  saldo:        numero(data?.saldo),
+  principal:    numero(data?.principal),
+  bruto:        numero(data?.bruto),
+  bono:         numero(data?.bono),
+  ganado_total: numero(data?.ganado_total)
+};
 
   if (!c) {
     await supabase.from('carteras').insert([{
@@ -96,14 +104,17 @@ async function carteraDe(telegram_id) {
 async function actualizarCartera(telegram_id, patch) {
   const cur = await carteraDe(telegram_id);
   const row = {
-    telegram_id,
-    saldo:     (patch.saldo     !== undefined) ? numero(patch.saldo)     : cur.saldo,
-    principal: (patch.principal !== undefined) ? numero(patch.principal) : cur.principal,
-    bruto:     (patch.bruto     !== undefined) ? numero(patch.bruto)     : cur.bruto,
-    bono:      (patch.bono      !== undefined) ? numero(patch.bono)      : cur.bono
-  };
+    const row = {
+  telegram_id,
+  saldo:        (patch.saldo        !== undefined) ? numero(patch.saldo)        : cur.saldo,
+  principal:    (patch.principal    !== undefined) ? numero(patch.principal)    : cur.principal,
+  bruto:        (patch.bruto        !== undefined) ? numero(patch.bruto)        : cur.bruto,
+  bono:         (patch.bono         !== undefined) ? numero(patch.bono)         : cur.bono,
+  ganado_total: (patch.ganado_total !== undefined) ? numero(patch.ganado_total) : cur.ganado_total  // 👈 esta es la nueva
+};
   await supabase.from('carteras').upsert([row], { onConflict: 'telegram_id' });
 }
+
 
 // ======== /start & Referidos ========
 bot.start(async (ctx) => {
@@ -132,10 +143,13 @@ bot.hears('Saldo', async (ctx) => {
   try {
     const chatId = ctx.from.id;
     await asegurarUsuario(chatId);
-    const c = await carteraDe(chatId);
+
+    const c = await carteraDe(chatId); // debe traer: saldo, principal, bruto, bono, ganado_total
     const total = c.principal + c.saldo + c.bono;
-    const top = top500(c.bruto);
-    const prog = progreso500(c);
+
+    const top  = top500(c.bruto);               // tope = bruto * 5
+    const prog = top > 0 ? (c.ganado_total / top) * 100 : 0;  // 🔥 progreso con lo ACUMULADO
+
     await ctx.reply(
       'Tu saldo (en USDT):\n\n' +
       `Principal (invertido):  ${c.principal.toFixed(2)}\n` +
@@ -149,7 +163,7 @@ bot.hears('Saldo', async (ctx) => {
     );
   } catch (e) {
     console.log('ERROR Saldo:', e);
-    try { await ctx.reply('Error obteniendo tu saldo.'); } catch {}
+    try { await ctx.reply('Error obteniendo tu saldo. Intenta de nuevo.'); } catch {}
   }
 });
 
@@ -438,10 +452,11 @@ try {
     console.log('[BONO] bruto=', bonoBruto, 'margen=', margenS, 'final=', bonoFinal);
 
     if (bonoFinal > 0) {
-      await actualizarCartera(sponsorId, {
-        saldo: carS.saldo + bonoFinal,   // disponible
-        bono:  carS.bono  + bonoFinal    // suma a “bono” para progreso
-      });
+      await actualizarCartera(sponsor, {
+  saldo:        carS.saldo + bonoFinal,
+  bono:         carS.bono  + bonoFinal,
+  ganado_total: carS.ganado_total + bonoFinal   // 🔥 también cuenta para el 500%
+});
       try {
         await bot.telegram.sendMessage(
           sponsorId,
@@ -496,7 +511,10 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
     const totalDebitar = r.monto + RETIRO_FEE_USDT;
     if (totalDebitar > car.saldo) return ctx.answerCbQuery('Saldo insuficiente');
 
-    await actualizarCartera(r.telegram_id, { saldo: car.saldo - totalDebitar });
+    // aprobar retiro
+await actualizarCartera(r.telegram_id, {
+  saldo: car.saldo - totalDebitar   // ✅ solo saldo; NO modificar ganado_total
+});
     await supabase.from('retiros').update({ estado: 'aprobado' }).eq('id', rid);
 
     await bot.telegram.sendMessage(r.telegram_id, `✅ Retiro aprobado: ${r.monto.toFixed(2)} USDT`);
@@ -556,7 +574,10 @@ bot.command('pagarhoy', async (ctx) => {
       if (pago > margen) pago = margen;
       if (pago <= 0) continue;
 
-      await actualizarCartera(c.telegram_id, { saldo: saldo + pago });
+      await actualizarCartera(uid, { 
+  saldo: saldo + pago,
+  ganado_total: (car.ganado_total || 0) + pago
+});
       totalPagado += pago;
       cuentasPagadas += 1;
 
@@ -612,6 +633,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
