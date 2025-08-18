@@ -130,7 +130,12 @@ bot.start(async (ctx) => {
       if (sponsor === uid) sponsor = null; // no auto-referido
     }
     await asegurarUsuario(uid, sponsor);
-    await ctx.reply('¡Bienvenido a FortunaMoney! Usa el menú 👇', menu());
+    
+    const welcomeMsg = sponsor 
+      ? '🎉 ¡Bienvenido a FortunaMoney! Has sido referido por otro usuario.\n\n📋 Usa el menú de abajo para comenzar a invertir y generar ganancias diarias.\n\n💡 Tip: Si no ves el menú, usa /menu para mostrarlo.'
+      : '🎉 ¡Bienvenido a FortunaMoney!\n\n📋 Usa el menú de abajo para comenzar a invertir y generar ganancias diarias.\n\n� Tip: Si no ves el menú, usa /menu para mostrarlo.';
+    
+    await ctx.reply(welcomeMsg, menu());
   } catch (e) { console.log('START error:', e); }
 });
 
@@ -138,6 +143,35 @@ bot.hears('Referidos', async (ctx) => {
   const uid = ctx.from.id;
   const link = `https://t.me/${ctx.botInfo.username}?start=ref_${uid}`;
   await ctx.reply(`Tu enlace de referido:\n${link}`);
+});
+
+// ======== Comando /menu ========
+bot.command('menu', async (ctx) => {
+  await ctx.reply('📋 Aquí tienes el menú principal:', menu());
+});
+
+// ======== Comando /ayuda o /help ========
+bot.command(['ayuda', 'help'], async (ctx) => {
+  const helpText = 
+    '🆘 **AYUDA - FortunaMoney Bot**\n\n' +
+    '📋 **Opciones del menú:**\n' +
+    '• **Invertir** - Realiza un depósito en USDT o CUP\n' +
+    '• **Retirar** - Solicita un retiro de tus ganancias\n' +
+    '• **Saldo** - Consulta tu balance actual\n' +
+    '• **Referidos** - Obtén tu enlace de referido\n' +
+    '• **Ganado total** - Ve tu histórico de ganancias\n\n' +
+    '💰 **Información importante:**\n' +
+    '• Inversión mínima: 25 USDT o 500 CUP\n' +
+    '• Ganancias diarias: 1.5% - 2% según el monto\n' +
+    '• Tope máximo: 500% de tu inversión total\n' +
+    '• Bono por referidos: 10% del depósito\n\n' +
+    '🔧 **Comandos útiles:**\n' +
+    '• /start - Reiniciar el bot\n' +
+    '• /menu - Mostrar el menú\n' +
+    '• /ayuda - Mostrar esta ayuda\n\n' +
+    '📞 **¿Necesitas soporte?** Contacta con el administrador.';
+  
+  await ctx.reply(helpText, { parse_mode: 'Markdown', ...menu() });
 });
 
 // ======== Saldo ========
@@ -238,7 +272,21 @@ bot.on('text', async (ctx, next) => {
     // Si NO estamos en un estado que este handler deba procesar,
     // DEJA PASAR el mensaje a los .hears() con next()
     const estadosManejados = ['INV_USDT', 'INV_CUP', 'RET', 'RET_DEST'];
-    if (!estadosManejados.includes(st)) return next();
+    if (!estadosManejados.includes(st)) {
+      // Si no está en ningún estado específico, mostrar mensaje cordial
+      await ctx.reply(
+        '😊 Hola! Parece que has escrito algo que no reconozco.\n\n' +
+        '📋 Por favor, utiliza las opciones del menú principal:\n' +
+        '• Invertir\n' +
+        '• Retirar\n' +
+        '• Saldo\n' +
+        '• Referidos\n' +
+        '• Ganado total\n\n' +
+        '💡 Si no ves el menú, escribe /start para mostrarlo nuevamente.',
+        menu()
+      );
+      return;
+    }
 
     const txt = txtRaw;
     const monto = Number(txt.replace(',', '.'));
