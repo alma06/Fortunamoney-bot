@@ -34,8 +34,6 @@ if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID
 const bot = new Telegraf(BOT_TOKEN, { telegram: { webhookReply: true } });
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// --- retiro: memoria temporal ---
-const retiroDraft = {}; // { [uid]: { monto, metodo } }
 
 // ======== Helpers ========
 function numero(x) { return Number(x ?? 0) || 0; }
@@ -789,6 +787,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
