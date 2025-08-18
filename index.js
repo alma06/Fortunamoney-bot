@@ -438,129 +438,87 @@ bot.on('photo', async (ctx) => {
 });
 
 // ===== RETIRO: captura destino (wallet/tarjeta) =====
-bot.on('text', async (ctx) => {
-  const uid = ctx.from.id;
-  const st = estado[uid];
-
-  if (st === 'RET_DEST') {
-    const draft = retiroDraft[uid];
-    const destino = (ctx.message?.text ?? '').trim();
-
-    if (!draft || !draft.monto || !draft.metodo) {
-      await ctx.reply('No encuentro tu solicitud. Vuelve a iniciar con "Retirar".');
-      estado[uid] = undefined;
-      return;
-    }
-
-    // Crear retiro en supabase
-    const insR = await supabase.from('retiros').insert([{
-      telegram_id: uid,
-      monto: numero(draft.monto),
-      estado: 'pendiente',
-      metodo: draft.metodo,
-      destino: destino
-    }]).select('id').single();
-
-    if (insR.error) {
-      console.log('Error insert retiro:', insR.error);
-      await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
-      estado[uid] = undefined;
-      return;
-    }
-
-    const fee = RETIRO_FEE_USDT;
-    const retId = insR.data.id;
-
-    await ctx.reply(
-      `✅ Retiro creado (pendiente).\n\n` +
-      `ID: ${retId}\n` +
-      `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
-      `Método: ${draft.metodo}\n` +
-      `Destino: ${destino}\n` +
-      `Fee descontado: ${fee.toFixed(2)} USDT`,
-      menu
-    );
-    // ===== RETIRO: captura destino (wallet/tarjeta) =====
-if (st === 'RET_DEST') {
-  const uid = chatId;                       // ya definiste chatId arriba
-  const draft = retiroDraft[uid];           // { monto, metodo }
-  const destino = (ctx.message?.text ?? '').trim();
-
-  if (!draft || !draft.monto || !draft.metodo) {
-    await ctx.reply('No encuentro tu solicitud. Vuelve a iniciar con "Retirar".');
-    estado[uid] = undefined;
-    return;
-  }
-
-  // Crea el retiro con método y destino
-  const insR = await supabase.from('retiros').insert([{
-    telegram_id: uid,
-    monto: numero(draft.monto),
-    estado: 'pendiente',
-    metodo: draft.metodo,   // 'USDT' o 'CUP'
-    destino: destino        // wallet o tarjeta
-  }]).select('id').single();
-
-  if (insR.error) {
-    console.log('Error insert retiro:', insR.error);
-    await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
-    estado[uid] = undefined;
-    return;
-  }
-
-  const fee = RETIRO_FEE_USDT;
-  const retId = insR.data.id;
-
-  await ctx.reply(
-    `✅ Retiro creado (pendiente).\n\n` +
-    `ID: ${retId}\n` +
-    `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
-    `Método: ${draft.metodo}\n` +
-    `Destino: ${destino}\n` +
-    `Fee descontado: ${fee.toFixed(2)} USDT`,
-    menu()
-  );
-
-  // Aviso al canal admin
+// Handler general de texto
+bot.on('text', async (ctx, next) => {
   try {
-    await bot.telegram.sendMessage(
-      ADMIN_GROUP_ID,
-      `📤 RETIRO pendiente\n` +
-      `ID: #${retId}\n` +
-      `Usuario: ${uid}\n` +
-      `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
-      `Método: ${draft.metodo}\n` +
-      `Destino: ${destino}\n` +
-      `Fee: ${fee.toFixed(2)} USDT`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '✅ Aprobar retiro',  callback_data: `ret:approve:${retId}` }],
-            [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}`  }]
-          ]
-        }
+    const chatId = ctx.from.id;
+    const st = estado[chatId];
+
+    // Solo procesar si el estado está en esta lista
+    if (!['INV_USDT', 'INV_CUP', 'RET', 'RET_DEST'].includes(st)) {
+      return;
+    }
+
+    // ===== RETIRO: elegir método =====
+    if (st === 'RET') {
+      const metodo = ctx.message?.text?.trim();
+      if (!['USDT (BEP20)', 'CUP (Tarjeta)'].includes(metodo)) {
+        await ctx.reply('Método inválido. Usa los botones para elegir.');
+        return;
       }
-    );
-  } catch (e) {
-    console.log('Error notificando retiro:', e);
-  }
 
-  delete retiroDraft[uid];         // limpia el draft
-  estado[uid] = undefined;         // resetea el flujo
-  return;
-}
+      retiroDraft[chatId].metodo = metodo;
+      estado[chatId] = 'RET_DEST';
 
-    // Aviso detallado al admin
-    try {
+      if (metodo === 'USDT (BEP20)') {
+        await ctx.reply('Escribe tu wallet USDT (BEP20) donde quieres recibir el pago:');
+      } else {
+        await ctx.reply('Escribe el número de tu tarjeta CUP donde quieres recibir el pago:');
+      }
+
+      return;
+    }
+
+    // ===== RETIRO: captura destino (wallet/tarjeta) =====
+    if (st === 'RET_DEST') {
+      const uid = chatId;
+      const draft = retiroDraft[uid];   // { monto, metodo }
+      const destino = (ctx.message?.text ?? '').trim();
+
+      if (!draft || !draft.monto || !draft.metodo) {
+        await ctx.reply('No encuentro tu solicitud. Vuelve a iniciar con "Retirar".');
+        estado[uid] = undefined;
+        return;
+      }
+
+      // Guardamos en la tabla de retiros
+      const insR = await supabase.from('retiros').insert([{
+        telegram_id: uid,
+        monto: numero(draft.monto),
+        estado: 'pendiente',
+        metodo: draft.metodo,
+        destino: destino
+      }]).select('id').single();
+
+      if (insR.error) {
+        console.log('Error insert retiro:', insR.error);
+        await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
+        estado[uid] = undefined;
+        delete retiroDraft[uid];
+        return;
+      }
+
+      const retId = insR.data.id;
+      const fee = RETIRO_FEE_USDT;
+
+      await ctx.reply(
+        `✅ Retiro creado (pendiente).\n\n` +
+        `ID: ${retId}\n` +
+        `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
+        `Método: ${draft.metodo}\n` +
+        `Destino: ${destino}\n` +
+        `Fee descontado: ${fee.toFixed(2)} USDT`
+      );
+
+      // Aviso al admin/canal
       await bot.telegram.sendMessage(
         ADMIN_GROUP_ID,
-        `📤 RETIRO pendiente\n` +
+        `🆕 RETIRO pendiente\n` +
         `ID: #${retId}\n` +
         `Usuario: ${uid}\n` +
         `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
         `Método: ${draft.metodo}\n` +
-        `Destino: ${destino}\n` +
-        `Fee: ${fee.toFixed(2)} USDT`,
+        `Destino: ${destino}`,
         {
           reply_markup: {
             inline_keyboard: [
@@ -570,14 +528,16 @@ if (st === 'RET_DEST') {
           }
         }
       );
-    } catch (e) {
-      console.error('Error notificando al canal de retiros:', e);
-    }
 
-    estado[uid] = undefined;
+      // limpiar estado
+      estado[uid] = undefined;
+      delete retiroDraft[uid];
+      return;
+    }
+  } catch (err) {
+    console.error('Error en handler de texto:', err);
   }
 });
-
 // ======== Aprobar/Rechazar Depósito ========
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
   try {
@@ -841,6 +801,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
