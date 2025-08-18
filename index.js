@@ -34,7 +34,8 @@ const bot = new Telegraf(BOT_TOKEN, { telegram: { webhookReply: true } });
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ======== Estado en memoria ========
-const estado = {}; // 'INV_USDT' | 'INV_CUP' | 'RET'
+const estado = {}; // 'INV_USDT' | 'INV_CUP' | 'RET' ...
+const retiroDraft = {}; // { [telegram_id]: { monto, metodo } }
 
 // ======== Helpers ========
 function numero(x) { return Number(x ?? 0) || 0; }
@@ -218,12 +219,14 @@ bot.action('inv:cup', async (ctx) => {
 // ======== Retirar ========
 bot.hears('Retirar', async (ctx) => {
   const chatId = ctx.from.id;
-  const car = await carteraDe(chatId);
+  retiroDraft[chatId] = {}; // limpia draft
   estado[chatId] = 'RET';
+  const car = await carteraDe(chatId);
+
   await ctx.reply(
-    `Tu saldo disponible es: ${car.saldo.toFixed(2)} USDT\n` +
+    `Tu saldo disponible es: ${numero(car.saldo).toFixed(2)} USDT\n` +
     `Fee de retiro: ${RETIRO_FEE_USDT} USDT\n` +
-    'Escribe el monto a retirar (solo número, ej: 25.00)'
+    `Escribe el monto a retirar (solo número, ej: 25.00)`
   );
 });
 
@@ -333,31 +336,41 @@ bot.on('text', async (ctx, next) => {
 
     // ===== RETIRAR =====
     if (st === 'RET') {
-      const fee = RETIRO_FEE_USDT;
-      const car = await carteraDe(chatId);
-      const disp = numero(car.saldo);
-      const totalDebitar = monto + fee;
+  const fee = RETIRO_FEE_USDT;
+  const car = await carteraDe(chatId);
+  const disp = numero(car.saldo);
 
-      if (totalDebitar > disp) {
-        await ctx.reply(
-          'Saldo insuficiente.\n' +
-          `Disponible: ${disp.toFixed(2)} USDT\n` +
-          `Se necesita: ${totalDebitar.toFixed(2)} USDT (monto + fee).`
-        );
-        estado[chatId] = undefined;
-        return;
-      }
+  // 1) Validar monto
+  const monto = Number(txt.replace(',', '.'));
+  if (isNaN(monto) || monto <= 0) {
+    await ctx.reply('Monto inválido. Intenta de nuevo.');
+    return;
+  }
 
-      const insR = await supabase.from('retiros').insert([{
-        telegram_id: chatId,
-        monto: monto,
-        estado: 'pendiente'
-      }]).select('id').single();
+  const totalDebitar = monto + fee;
+  if (totalDebitar > disp) {
+    await ctx.reply(
+      'Saldo insuficiente.\n' +
+      `Disponible: ${disp.toFixed(2)} USDT\n` +
+      `Se necesita: ${totalDebitar.toFixed(2)} USDT (monto + fee).`
+    );
+    estado[chatId] = undefined;
+    return;
+  }
 
-      if (insR.error) {
-        await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
-        return;
-      }
+  // 2) Guardar monto en draft y pedir método
+  retiroDraft[chatId] = { monto };
+  await ctx.reply(
+    'Elige método de cobro:',
+    Markup.inlineKeyboard([
+      [{ text: 'USDT (BEP20)', callback_data: 'ret:m:usdt' }],
+      [{ text: 'CUP (Tarjeta)', callback_data: 'ret:m:cup' }]
+    ])
+  );
+  // Pasamos a esperar destino
+  estado[chatId] = 'RET_ELIGE_METODO';
+  return;
+}
 
       const retId = insR.data.id;
       await ctx.reply(
@@ -423,6 +436,78 @@ bot.on('photo', async (ctx) => {
     console.error("Error en handler de foto:", e);
   }
 });
+
+// ===== RETIRO: captura destino (wallet/tarjeta) y crea retiro =====
+if (st === 'RET_DEST') {
+  const uid = ctx.from.id;
+  const draft = retiroDraft[uid];
+  const destino = (ctx.message?.text ?? '').trim();
+
+  if (!draft || !draft.monto || !draft.metodo) {
+    await ctx.reply('No encuentro tu solicitud. Vuelve a iniciar con "Retirar".');
+    estado[uid] = undefined;
+    return;
+  }
+
+  // Crear retiro con método y destino
+  const insR = await supabase.from('retiros').insert([{
+    telegram_id: uid,
+    monto: numero(draft.monto),
+    estado: 'pendiente',
+    metodo: draft.metodo,     // << NUEVO CAMPO
+    destino: destino          // << NUEVO CAMPO
+  }]).select('id').single();
+
+  if (insR.error) {
+    console.log('Error insert retiro:', insR.error);
+    await ctx.reply('No se pudo crear el retiro. Intenta nuevamente.');
+    estado[uid] = undefined;
+    return;
+  }
+
+  const fee = RETIRO_FEE_USDT;
+  const retId = insR.data.id;
+
+  await ctx.reply(
+    `✅ Retiro creado (pendiente).\n\n` +
+    `ID: ${retId}\n` +
+    `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
+    `Método: ${draft.metodo}\n` +
+    `Destino: ${destino}\n` +
+    `Fee descontado: ${fee.toFixed(2)} USDT`,
+    menu()
+  );
+
+  // Aviso detallado al admin
+  try {
+    await bot.telegram.sendMessage(
+      ADMIN_GROUP_ID,
+      `🆕 RETIRO pendiente\n` +
+      `ID: #${retId}\n` +
+      `Usuario: ${uid}\n` +
+      `Monto: ${numero(draft.monto).toFixed(2)} USDT\n` +
+      `Método: ${draft.metodo}\n` +
+      `Destino: ${destino}\n` +
+      `Fee: ${fee.toFixed(2)} USDT`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Aprobar retiro',  callback_data: `ret:approve:${retId}` }],
+            [{ text: '❌ Rechazar retiro', callback_data: `ret:reject:${retId}`  }]
+          ]
+        }
+      }
+    );
+  } catch (e3) {
+    console.log('No pude avisar al admin (retiro):', e3?.message || e3);
+  }
+
+  // Limpiar estado
+  delete retiroDraft[uid];
+  estado[uid] = undefined;
+  return;
+}
+
 
 // ======== Aprobar/Rechazar Depósito ========
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
@@ -562,6 +647,29 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
     await ctx.reply(`Retiro #${rid} rechazado.`);
   } catch (e) { console.log(e); }
 });
+// Paso método USDT
+bot.action('ret:m:usdt', async (ctx) => {
+  const uid = ctx.from.id;
+  if (!retiroDraft[uid] || !retiroDraft[uid].monto) {
+    return ctx.answerCbQuery('Primero escribe el monto.');
+  }
+  retiroDraft[uid].metodo = 'USDT';
+  estado[uid] = 'RET_DEST';
+  await ctx.answerCbQuery();
+  await ctx.reply('Escribe tu wallet USDT (BEP20) donde quieres recibir el pago:');
+});
+
+// Paso método CUP
+bot.action('ret:m:cup', async (ctx) => {
+  const uid = ctx.from.id;
+  if (!retiroDraft[uid] || !retiroDraft[uid].monto) {
+    return ctx.answerCbQuery('Primero escribe el monto.');
+  }
+  retiroDraft[uid].metodo = 'CUP';
+  estado[uid] = 'RET_DEST';
+  await ctx.answerCbQuery();
+  await ctx.reply('Escribe el número de tu tarjeta CUP (16 dígitos) donde quieres recibir el pago:');
+});
 
 // ======== /pagarhoy (pago manual robusto) ========
 bot.command('pagarhoy', async (ctx) => {
@@ -664,6 +772,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
