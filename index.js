@@ -362,23 +362,19 @@ bot.on('text', async (ctx, next) => {
   }
 
   // 2) Guardar monto en draft y pedir método
-  retiroDraft[chatId] = { monto };
-  await ctx.reply(
-    'Elige método de cobro:',
-    Markup.inlineKeyboard([
-      [{ text: 'USDT (BEP20)', callback_data: 'ret:m:usdt' }],
-      [{ text: 'CUP (Tarjeta)', callback_data: 'ret:m:cup' }]
-    ])
-  );
-  // Pasamos a esperar destino
-  estado[chatId] = 'RET_ELIGE_METODO';
-  return;
-}
+retiroDraft[chatId] = { monto };
+await ctx.reply(
+  'Elige método de cobro:',
+  Markup.inlineKeyboard([
+    [{ text: 'USDT (BEP20)', callback_data: 'ret:m:usdt' }],
+    [{ text: 'CUP (Tarjeta)', callback_data: 'ret:m:cup' }],
+  ])
+);
 
- // Pasamos a esperar destino
+// Pasamos a esperar destino
 estado[chatId] = 'RET_ELIGE_METODO';
 return;
-}
+
 
 // ===== Aviso al usuario: retiro creado =====
 const retId = insR.data.id;
@@ -812,6 +808,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
