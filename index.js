@@ -188,11 +188,13 @@ bot.hears('Retirar', async (ctx) => {
 });
 
 // ============== Handler ÚNICO de texto (montos) ==============
-bot.on('text', async (ctx) => {
+bot.on('text', async (ctx, next) => {
   try {
     const chatId = ctx.from.id;
     const txtRaw = (ctx.message?.text ?? '').trim();
-    if (txtRaw.startsWith('/')) return;
+
+    // Si empieza con "/", lo mandamos al siguiente handler (como /pagarhoy)
+    if (txtRaw.startsWith('/')) return next();
 
     const st = estado[chatId];
     if (!['INV_USDT', 'INV_CUP', 'RET'].includes(st)) return;
@@ -203,6 +205,8 @@ bot.on('text', async (ctx) => {
       await ctx.reply('Monto inválido. Intenta de nuevo.');
       return;
     }
+
+    // ... resto de tu código igual ...
 
     // ===== INVERTIR =====
     if (st === 'INV_USDT' || st === 'INV_CUP') {
@@ -608,6 +612,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
