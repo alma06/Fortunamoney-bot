@@ -375,16 +375,23 @@ bot.on('text', async (ctx, next) => {
   return;
 }
 
- // ===== Aviso al usuario: retiro creado =====
+ // Pasamos a esperar destino
+estado[chatId] = 'RET_ELIGE_METODO';
+return;
+}
+
+// ===== Aviso al usuario: retiro creado =====
 const retId = insR.data.id;
 const fee = RETIRO_FEE_USDT;
 
 await ctx.reply(
-  '✅ Retiro creado (pendiente).\n\n' +
-  `ID: #${retId}\n` +
-  `Monto: ${monto.toFixed(2)} USDT\n` +
-  `Fee descontado: ${fee.toFixed(2)} USDT`,
-  menu() // <<--- IMPORTANTE: con paréntesis
+  [
+    '✅ Retiro creado (pendiente).',
+    `ID: ${retId}`,
+    `Monto: ${monto.toFixed(2)} USDT`,
+    `Fee descontado: ${fee.toFixed(2)} USDT`,
+  ].join('\n'),
+  menu() // <-- importante: con paréntesis
 );
 
 // ===== Aviso detallado al admin/canal =====
@@ -410,7 +417,7 @@ try {
   console.log('Error notificando al canal de retiros:', e);
 }
 
-// limpiar estado y salir
+// limpiar estado y salir SIEMPRE
 estado[chatId] = undefined;
 delete retiroDraft[chatId];
 return;
@@ -421,7 +428,6 @@ return;
 }
 // <-- cierre ÚNICO del bot.on('text', …)
 });
-
 // ======== Handler de Foto (comprobante) ========
 bot.on('photo', async (ctx) => {
   try {
@@ -806,6 +812,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
