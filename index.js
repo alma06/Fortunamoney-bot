@@ -559,16 +559,14 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
   } catch (e) { console.log(e); }
 });
 
-// ======== /pagarhoy (pago manual de ganancias) ========
-// Sin restricción de día. Respeta tope 500% (saldo+bono) y paga 1.5% (<500) o 2% (>=500).
+// ======== /pagarhoy (pago manual robusto) ========
 bot.command('pagarhoy', async (ctx) => {
-  // Si quieres que cualquiera lo ejecute, comenta la siguiente línea.
   if (ctx.from.id !== ADMIN_ID) return ctx.reply('Solo admin.');
 
   try {
     const { data: carteras, error } = await supabase
       .from('carteras')
-      .select('telegram_id, saldo, principal, bruto, bono');
+      .select('telegram_id, saldo, principal, bruto, bono, ganado_total'); // <-- incluye ganado_total
 
     if (error) {
       console.log('/pagarhoy select error:', error);
@@ -578,51 +576,54 @@ bot.command('pagarhoy', async (ctx) => {
 
     let totalPagado = 0;
     let cuentasPagadas = 0;
+    const log = [];
 
     for (const c of carteras) {
+      const userId    = Number(c.telegram_id);               // <-- define aquí
       const principal = numero(c.principal);
-      const bruto     = numero(c.bruto);
+      let   bruto     = numero(c.bruto);
       const saldo     = numero(c.saldo);
       const bono      = numero(c.bono);
+      const ganadoAc  = numero(c.ganado_total);              // acumulado
 
-      if (principal <= 0 || bruto <= 0) continue;
+      if (principal <= 0) { log.push(`${userId}: sin principal`); continue; }
+      if (bruto <= 0) bruto = principal / 0.9;               // fallback
 
-      // Tasa por tramo
       const rate = principal >= 500 ? 0.02 : 0.015;
       let pago = principal * rate;
 
-      // Tope 500%: sólo cuenta lo ganado (saldo + bono)
-      const top = top500(bruto);              // bruto * 5
-      const ganado = saldo + bono;            // lo que ya ganó
-      const margen = top - ganado;            // cuánto queda del 500%
+      const top = top500(bruto);             // tope = bruto * 5
+      const ganado = saldo + bono;           // lo ganado que cuenta al tope
+      const margen = top - ganado;
 
-      if (margen <= 0) continue;
+      if (margen <= 0) { log.push(`${userId}: tope alcanzado`); continue; }
+
       if (pago > margen) pago = margen;
-      if (pago <= 0) continue;
+      if (pago <= 0) { log.push(`${userId}: pago <= 0`); continue; }
 
-      await actualizarCartera(uid, { 
-  saldo: saldo + pago,
-  ganado_total: (car.ganado_total || 0) + pago
-});
+      await actualizarCartera(userId, {
+        saldo:        saldo + pago,
+        ganado_total: ganadoAc + pago        // <-- suma al acumulado (no afecta el tope)
+      });
+
       totalPagado += pago;
       cuentasPagadas += 1;
+      log.push(`${userId}: pagado ${pago.toFixed(4)} (rate ${rate * 100}%)`);
 
-      // Aviso al usuario
       try {
-        await bot.telegram.sendMessage(
-          c.telegram_id,
-          `💸 Pago acreditado: ${pago.toFixed(2)} USDT`
-        );
+        await bot.telegram.sendMessage(userId, `💸 Pago acreditado: ${pago.toFixed(2)} USDT`);
       } catch (eNoti) {
-        console.log('No pude notificar a', c.telegram_id, eNoti?.message || eNoti);
+        console.log('No pude notificar a', userId, eNoti?.message || eNoti);
       }
     }
 
-    await ctx.reply(
+    const resumen =
       `✅ /pagarhoy completado.\n` +
       `Cuentas pagadas: ${cuentasPagadas}\n` +
-      `Total pagado: ${totalPagado.toFixed(2)} USDT`
-    );
+      `Total pagado: ${totalPagado.toFixed(2)} USDT\n` +
+      (log.length ? `\nDetalle:\n${log.slice(0, 50).join('\n')}${log.length > 50 ? '\n…' : ''}` : '');
+
+    await ctx.reply(resumen);
 
   } catch (e) {
     console.log('/pagarhoy error:', e);
@@ -659,6 +660,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
