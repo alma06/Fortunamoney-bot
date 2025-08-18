@@ -384,14 +384,14 @@ await ctx.reply(
   menu
 );
 
-// Aviso detallado al admin
+// === Aviso detallado al admin ===
 try {
   await bot.telegram.sendMessage(
     ADMIN_GROUP_ID,
-    `📣 RETIRO pendiente\n` +
-    `ID: #${retId}\n` +
-    `Usuario: ${chatId}\n` +
-    `Monto: ${monto.toFixed(2)} USDT`,
+    `📣 RETIRO pendiente
+ID: #${retId}
+Usuario: ${chatId}
+Monto: ${monto.toFixed(2)} USDT`,
     {
       reply_markup: {
         inline_keyboard: [
@@ -410,11 +410,12 @@ estado[chatId] = undefined;
 delete retiroDraft[chatId];
 return;
 
-} catch (e) { // <-- este es el catch EXTERNO del handler
+} catch (e) { // <-- catch EXTERNO del handler bot.on('text', ...)
   console.log('Error en handler de texto:', e);
   try { await ctx.reply('Ocurrió un error procesando tu mensaje.'); } catch {}
 }
 }); // <-- cierre ÚNICO del bot.on('text', ...)
+
 // ======== Handler de Foto (comprobante) ========
 bot.on('photo', async (ctx) => {
   try {
@@ -799,6 +800,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
