@@ -405,48 +405,53 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
       .update({ estado: 'aprobado' })
       .eq('id', depId);
 
-    // ===== PAGO DE REFERIDO (10%) -> patrocinador del usuario =====
+    // ====== PAGO DE REFERIDO (10%) -> PATROCINADOR REAL ======
 try {
-  const { data: u } = await supabase
+  const { data: u, error: uErr } = await supabase
     .from('usuarios')
     .select('patrocinador_id')
-    .eq('telegram_id', d.telegram_id)
+    .eq('telegram_id', d.telegram_id)   // el que depositó
+    .limit(1)
     .maybeSingle();
 
-  const recipientId = u?.patrocinador_id ? Number(u.patrocinador_id) : null;
+  if (uErr) console.log('Lookup patrocinador error:', uErr);
+  const sponsorId = Number(u?.patrocinador_id || 0);
+  console.log('[BONO] sponsorId para', d.telegram_id, '=>', sponsorId);
 
-  if (recipientId && recipientId !== d.telegram_id) {
-    const bonoBruto = numero(d.monto) * 0.10;   // 10% del depósito
-    const carR = await carteraDe(recipientId);   // cartera del patrocinador
+  if (!sponsorId || sponsorId === d.telegram_id) {
+    console.log('[BONO] Sin patrocinador válido; no se paga 10%.');
+  } else {
+    await asegurarUsuario(sponsorId);                    // por si no tiene cartera
+    const bonoBruto = numero(d.monto) * 0.10;           // 10%
+    const carS = await carteraDe(sponsorId);
 
-    // respeta tope 500% usando lo GANADO (saldo + bono)
-    const topR    = top500(carR.bruto);
-    const ganadoR = numero(carR.saldo) + numero(carR.bono);
-    const margenR = (topR > 0) ? (topR - ganadoR) : Number.POSITIVE_INFINITY;
+    // Tope 500%: cuenta lo ganado (saldo + bono)
+    const topS = top500(carS.bruto);
+    const ganadoS = numero(carS.saldo) + numero(carS.bono);
+    const margenS = Math.max(0, topS - ganadoS);
 
-    const bonoFinal = Math.max(0, Math.min(bonoBruto, margenR));
+    const bonoFinal = Math.max(0, Math.min(bonoBruto, margenS));
+    console.log('[BONO] bruto=', bonoBruto, 'margen=', margenS, 'final=', bonoFinal);
+
     if (bonoFinal > 0) {
-      await actualizarCartera(recipientId, {
-        saldo: carR.saldo + bonoFinal,  // disponible para retirar
-        bono:  carR.bono  + bonoFinal   // suma al “bono” (cuenta al 500%)
+      await actualizarCartera(sponsorId, {
+        saldo: carS.saldo + bonoFinal,   // disponible
+        bono:  carS.bono  + bonoFinal    // suma a “bono” para progreso
       });
       try {
         await bot.telegram.sendMessage(
-          recipientId,
+          sponsorId,
           `🎉 Bono de referido acreditado: ${bonoFinal.toFixed(2)} USDT\n` +
           `Por el depósito de tu referido ${d.telegram_id}.`
         );
       } catch {}
     } else {
-      console.log('[BONO 10%] margen <= 0 (tope alcanzado); no se paga.');
+      console.log('[BONO] No se paga (margen 0 o tope alcanzado).');
     }
-  } else {
-    console.log('[BONO 10%] usuario sin patrocinador; no se paga.');
   }
 } catch (e) {
   console.log('BONO ref error:', e);
 }
-// ===== FIN PAGO DE REFERIDO =====
 
     // Aviso al usuario
     try {
@@ -535,6 +540,7 @@ app.listen(PORT, async () => {
 // Paradas elegantes
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 
 
 
