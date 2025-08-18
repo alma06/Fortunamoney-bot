@@ -30,7 +30,9 @@ if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID
 }
 
 // ======== INIT ========
-const bot = new Telegraf(BOT_TOKEN, { telegram: { webhookReply: true } });
+const bot = new Telegraf(BOT_TOKEN, {
+  telegram: { webhookReply: true }
+});
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ======== Estado en memoria ========
@@ -49,15 +51,49 @@ function progreso500({ saldo, bono, bruto }) {
   return ((numero(saldo) + numero(bono)) / top) * 100;
 }
 
+/* ========= ÚNICO CAMBIO IMPORTANTE =========
+   Deja de usar upsert() con ceros que pisaba los valores.
+   Ahora: solo crea si NO existe; y solo fija patrocinador
+   si estaba vacío y llega un sponsor nuevo.
+*/
 async function asegurarUsuario(telegram_id, referido_por = null) {
-  // Crea/actualiza usuario
-  await supabase.from('usuarios')
-    .upsert([{ telegram_id, patrocinador_id: referido_por || null }], { onConflict: 'telegram_id' });
+  // -- USUARIO
+  const { data: u } = await supabase
+    .from('usuarios')
+    .select('telegram_id, patrocinador_id')
+    .eq('telegram_id', telegram_id)
+    .maybeSingle();
 
-  // Crea cartera si no existe
-  await supabase.from('carteras')
-    .upsert([{ telegram_id, saldo: 0, principal: 0, bruto: 0, bono: 0 }], { onConflict: 'telegram_id' });
+  if (!u) {
+    await supabase.from('usuarios').insert([{
+      telegram_id,
+      patrocinador_id: referido_por || null
+    }]);
+  } else if (!u.patrocinador_id && referido_por) {
+    await supabase
+      .from('usuarios')
+      .update({ patrocinador_id: referido_por })
+      .eq('telegram_id', telegram_id);
+  }
+
+  // -- CARTERA
+  const { data: c } = await supabase
+    .from('carteras')
+    .select('telegram_id')
+    .eq('telegram_id', telegram_id)
+    .maybeSingle();
+
+  if (!c) {
+    await supabase.from('carteras').insert([{
+      telegram_id,
+      saldo: 0,
+      principal: 0,
+      bruto: 0,
+      bono: 0
+    }]);
+  }
 }
+// =============== FIN DEL CAMBIO =================
 
 async function carteraDe(telegram_id) {
   const { data } = await supabase
@@ -97,7 +133,7 @@ bot.start(async (ctx) => {
     const m = payload.match(/^ref_(\d{5,})$/i);
     if (m) {
       sponsor = Number(m[1]);
-      if (sponsor === uid) sponsor = null; // no auto-referido
+      if (sponsor === uid) sponsor = null; // no se puede auto-referir
     }
 
     await asegurarUsuario(uid, sponsor);
@@ -139,13 +175,8 @@ bot.hears('Saldo', async (ctx) => {
 
 // ======== Enlace de referidos ========
 bot.hears('Referidos', async (ctx) => {
-  // Asegurar botInfo
-  if (!bot.botInfo) {
-    try { bot.botInfo = await ctx.telegram.getMe(); } catch {}
-  }
   const uid = ctx.from.id;
-  const username = bot.botInfo?.username || 'TuBot';
-  const link = `https://t.me/${username}?start=ref_${uid}`;
+  const link = `https://t.me/${ctx.botInfo.username}?start=ref_${uid}`;
   await ctx.reply(`Tu enlace de referido:\n${link}`);
 });
 
@@ -377,7 +408,6 @@ bot.on('photo', async (ctx) => {
 });
 
 // ======== Aprobar/Rechazar Depósito ========
-// (AQUÍ SE PAGA EL BONO 10% AL PATROCINADOR, CON TOPE 500%)
 bot.action(/dep:approve:(\d+)/, async (ctx) => {
   try {
     if (ctx.from.id !== ADMIN_ID && ctx.chat?.id !== ADMIN_GROUP_ID) return;
@@ -402,7 +432,7 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
       .update({ estado: 'aprobado' })
       .eq('id', depId);
 
-    // Pagar 10% al patrocinador (cap por tope 500%, va a saldo y a bono)
+    // Pagar 10% al patrocinador CAPEADO por tope (saldo/bono cuentan hacia el 500%)
     try {
       const { data: u } = await supabase
         .from('usuarios')
@@ -416,7 +446,7 @@ bot.action(/dep:approve:(\d+)/, async (ctx) => {
         const carS = await carteraDe(sponsor);
 
         const topS = top500(carS.bruto);
-        const ganadoS = carS.saldo + carS.bono; // solo lo ganado cuenta al tope
+        const ganadoS = carS.saldo + carS.bono;
         const margenS = topS - ganadoS;
 
         const bonoFinal = Math.max(0, Math.min(bonoBruto, margenS));
@@ -480,6 +510,7 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
     await bot.telegram.sendMessage(r.telegram_id, `✅ Retiro aprobado: ${r.monto.toFixed(2)} USDT`);
     await ctx.editMessageReplyMarkup();
     await ctx.reply(`Retiro #${rid} aprobado.`);
+
   } catch (e) { console.log(e); }
 });
 
@@ -495,7 +526,7 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
 
 // ======== /pagarhoy (pago manual de ganancias) ========
 // Regla: principal < 500 => 1.5% ; principal >= 500 => 2%
-// Sin restricción de día. Respeta tope 500% con GANADO (saldo+bono).
+// Puedes ejecutarlo N veces al día; siempre respeta el tope 500% con GANADO (saldo+bono).
 bot.command('pagarhoy', async (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return ctx.reply('Solo admin.');
   try {
@@ -503,7 +534,7 @@ bot.command('pagarhoy', async (ctx) => {
       .from('carteras')
       .select('telegram_id, saldo, principal, bruto, bono');
 
-    if (!carteras || !carteras.length) return ctx.reply('No hay cuentas para pagar.');
+    if (!carteras || !carteras.length) return ctx.reply('No hay carteras.');
 
     let totalPagado = 0;
     let cuentasPagadas = 0;
