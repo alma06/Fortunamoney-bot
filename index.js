@@ -559,18 +559,29 @@ bot.on('text', async (ctx, next) => {
     // DEJA PASAR el mensaje a los .hears() con next()
     const estadosManejados = ['INV_USDT', 'INV_CUP', 'RET_USDT', 'RET_CUP', 'RET_DEST'];
     if (!estadosManejados.includes(st)) {
+      // Si está en un estado que requiere botones (como RET_ELIGE_METODO), ignorar
+      if (st === 'RET_ELIGE_METODO') {
+        await ctx.reply(
+          '⚠️ Por favor, usa los botones para elegir el método de cobro.\n\n' +
+          'Si no ves los botones, vuelve a escribir "Retirar" para reiniciar el proceso.'
+        );
+        return;
+      }
+      
       // Si no está en ningún estado específico, mostrar mensaje cordial
-      await ctx.reply(
-        '😊 Hola! Parece que has escrito algo que no reconozco.\n\n' +
-        '📋 Por favor, utiliza las opciones del menú principal:\n' +
-        '• Invertir\n' +
-        '• Retirar\n' +
-        '• Saldo\n' +
-        '• Referidos\n' +
-        '• Ganado total\n\n' +
-        '💡 Si no ves el menú, escribe /start para mostrarlo nuevamente.',
-        menu()
-      );
+      if (!st) {
+        await ctx.reply(
+          '😊 Hola! Parece que has escrito algo que no reconozco.\n\n' +
+          '📋 Por favor, utiliza las opciones del menú principal:\n' +
+          '• Invertir\n' +
+          '• Retirar\n' +
+          '• Saldo\n' +
+          '• Referidos\n' +
+          '• Ganado total\n\n' +
+          '💡 Si no ves el menú, escribe /start para mostrarlo nuevamente.',
+          menu()
+        );
+      }
       return;
     }
 
@@ -1127,10 +1138,10 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
 // Paso método USDT
 bot.action('ret:m:usdt', async (ctx) => {
   const uid = ctx.from.id;
-  if (!retiroDraft[uid] || !retiroDraft[uid].monto) {
-    return ctx.answerCbQuery('Primero escribe el monto.');
+  if (!retiroDraft[uid] || !retiroDraft[uid].monto || !retiroDraft[uid].moneda) {
+    return ctx.answerCbQuery('Error en el proceso. Vuelve a iniciar desde "Retirar".');
   }
-  retiroDraft[uid].metodo = 'USDT';
+  // No sobrescribir el método, ya se estableció en retiroDraft
   estado[uid] = 'RET_DEST';
   await ctx.answerCbQuery();
   await ctx.reply('Escribe tu wallet USDT (BEP20) donde quieres recibir el pago:');
@@ -1139,10 +1150,10 @@ bot.action('ret:m:usdt', async (ctx) => {
 // Paso método CUP
 bot.action('ret:m:cup', async (ctx) => {
   const uid = ctx.from.id;
-  if (!retiroDraft[uid] || !retiroDraft[uid].monto) {
-    return ctx.answerCbQuery('Primero escribe el monto.');
+  if (!retiroDraft[uid] || !retiroDraft[uid].monto || !retiroDraft[uid].moneda) {
+    return ctx.answerCbQuery('Error en el proceso. Vuelve a iniciar desde "Retirar".');
   }
-  retiroDraft[uid].metodo = 'CUP';
+  // No sobrescribir el método, ya se estableció en retiroDraft
   estado[uid] = 'RET_DEST';
   await ctx.answerCbQuery();
   await ctx.reply('Escribe el número de tu tarjeta CUP (16 dígitos) donde quieres recibir el pago:');
