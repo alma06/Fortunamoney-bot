@@ -15,6 +15,7 @@ const SUPABASE_URL    = process.env.SUPABASE_URL;
 const SUPABASE_KEY    = process.env.SUPABASE_KEY;
 const ADMIN_ID        = Number(process.env.ADMIN_ID || 0);
 const ADMIN_GROUP_ID  = Number(process.env.ADMIN_GROUP_ID || 0);
+const PAGOS_CHANNEL_ID = Number(process.env.PAGOS_CHANNEL_ID || 0);
 const WALLET_USDT     = process.env.WALLET_USDT || 'WALLET_NO_CONFIGURADA';
 const WALLET_CUP      = process.env.WALLET_CUP  || 'TARJETA_NO_CONFIGURADA';
 const HOST_URL        = process.env.HOST_URL || ''; // https://tu-app.onrender.com
@@ -26,7 +27,7 @@ const MIN_INVERSION    = Number(process.env.MIN_INVERSION || 25);  // USDT
 const RETIRO_FEE_USDT  = Number(process.env.RETIRO_FEE_USDT || 1);
 const CUP_USDT_RATE    = Number(process.env.CUP_USDT_RATE  || 400); // 1 USDT = 400 CUP
 
-if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID || !HOST_URL) {
+if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID || !PAGOS_CHANNEL_ID || !HOST_URL) {
   console.log('Faltan variables de entorno obligatorias.');
   process.exit(1);
 }
@@ -1051,10 +1052,38 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
 
     await supabase.from('retiros').update({ estado: 'aprobado' }).eq('id', rid);
 
+    // Notificar al usuario
     await bot.telegram.sendMessage(
       r.telegram_id, 
       `✅ Retiro aprobado: ${r.monto.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}`
     );
+
+    // Notificar al canal de pagos (público)
+    try {
+      const userIdCensurado = `***${String(r.telegram_id).slice(-3)}`;
+      const fechaHora = new Date().toLocaleString('es-ES', { 
+        timeZone: 'America/Havana',
+        day: '2-digit',
+        month: '2-digit', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      
+      const mensajeCanal = 
+        `💸 **Retiro Procesado**\n\n` +
+        `✅ Monto: ${r.monto.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}\n` +
+        `👤 Usuario: ${userIdCensurado}\n` +
+        `💳 Método: ${moneda === 'USDT' ? 'USDT (BEP20)' : 'CUP (Tarjeta)'}\n` +
+        `🕐 Fecha: ${fechaHora}`;
+
+      await bot.telegram.sendMessage(PAGOS_CHANNEL_ID, mensajeCanal, { 
+        parse_mode: 'Markdown' 
+      });
+    } catch (ePagos) {
+      console.log('Error notificando al canal de pagos:', ePagos?.message || ePagos);
+    }
+
     await ctx.editMessageReplyMarkup();
     await ctx.reply(`Retiro #${rid} aprobado.`);
   } catch (e) { console.log(e); }
