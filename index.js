@@ -27,14 +27,57 @@ const MIN_INVERSION    = Number(process.env.MIN_INVERSION || 25);  // USDT
 const RETIRO_FEE_USDT  = Number(process.env.RETIRO_FEE_USDT || 1);
 const CUP_USDT_RATE    = Number(process.env.CUP_USDT_RATE  || 400); // 1 USDT = 400 CUP
 
-if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID || !PAYMENT_CHANNEL || !HOST_URL) {
-  console.log('Faltan variables de entorno obligatorias.');
+// Validar variables de entorno obligatorias
+const requiredEnvVars = {
+  BOT_TOKEN,
+  SUPABASE_URL,
+  SUPABASE_KEY,
+  ADMIN_ID,
+  ADMIN_GROUP_ID,
+  HOST_URL
+};
+
+const missingVars = Object.entries(requiredEnvVars)
+  .filter(([key, value]) => !value || value === 0)
+  .map(([key]) => key);
+
+if (missingVars.length > 0) {
+  console.error('❌ Faltan variables de entorno obligatorias:', missingVars.join(', '));
+  console.error('📋 Variables actuales:');
+  console.error('- BOT_TOKEN:', BOT_TOKEN ? '✅ Configurado' : '❌ Faltante');
+  console.error('- SUPABASE_URL:', SUPABASE_URL ? '✅ Configurado' : '❌ Faltante');
+  console.error('- SUPABASE_KEY:', SUPABASE_KEY ? '✅ Configurado' : '❌ Faltante');
+  console.error('- ADMIN_ID:', ADMIN_ID ? '✅ Configurado' : '❌ Faltante');
+  console.error('- ADMIN_GROUP_ID:', ADMIN_GROUP_ID ? '✅ Configurado' : '❌ Faltante');
+  console.error('- PAYMENT_CHANNEL:', PAYMENT_CHANNEL ? '✅ Configurado' : '⚠️ No configurado (opcional)');
+  console.error('- HOST_URL:', HOST_URL ? '✅ Configurado' : '❌ Faltante');
   process.exit(1);
 }
 
-// ======== INIT ========
+// Advertir sobre variables opcionales
+if (!PAYMENT_CHANNEL) {
+  console.warn('⚠️ PAYMENT_CHANNEL no configurado. Las notificaciones de retiros no se enviarán al canal público.');
+}
+
+// ======== INIT con mejor manejo de errores ========
 const bot = new Telegraf(BOT_TOKEN, { telegram: { webhookReply: true } });
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Verificar conexión con Telegram al inicio
+bot.telegram.getMe().then(botInfo => {
+  console.log('✅ Conectado a Telegram como:', botInfo.username);
+}).catch(error => {
+  console.error('❌ Error conectando con Telegram:', error?.message || error);
+  process.exit(1);
+});
+
+// Verificar conexión con Supabase al inicio
+supabase.from('usuarios').select('count').limit(1).then(() => {
+  console.log('✅ Conectado a Supabase');
+}).catch(error => {
+  console.error('❌ Error conectando con Supabase:', error?.message || error);
+  process.exit(1);
+});
 
 // Estado para tracking de conversaciones
 const estado = {};
@@ -1058,30 +1101,40 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
       `✅ Retiro aprobado: ${r.monto.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}`
     );
 
-    // Notificar al canal de pagos (público)
-    try {
-      const userIdCensurado = `***${String(r.telegram_id).slice(-3)}`;
-      const fechaHora = new Date().toLocaleString('es-ES', { 
-        timeZone: 'America/Havana',
-        day: '2-digit',
-        month: '2-digit', 
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-      
-      const mensajeCanal = 
-        `💸 **Retiro Procesado**\n\n` +
-        `✅ Monto: ${r.monto.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}\n` +
-        `👤 Usuario: ${userIdCensurado}\n` +
-        `💳 Método: ${moneda === 'USDT' ? 'USDT (BEP20)' : 'CUP (Tarjeta)'}\n` +
-        `🕐 Fecha: ${fechaHora}`;
+    // Notificar al canal de pagos (público) solo si está configurado
+    if (PAYMENT_CHANNEL) {
+      try {
+        const userIdCensurado = `***${String(r.telegram_id).slice(-3)}`;
+        const fechaHora = new Date().toLocaleString('es-ES', { 
+          timeZone: 'America/Havana',
+          day: '2-digit',
+          month: '2-digit', 
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        
+        const mensajeCanal = 
+          `💸 **Retiro Procesado**\n\n` +
+          `✅ Monto: ${r.monto.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}\n` +
+          `👤 Usuario: ${userIdCensurado}\n` +
+          `💳 Método: ${moneda === 'USDT' ? 'USDT (BEP20)' : 'CUP (Tarjeta)'}\n` +
+          `🕐 Fecha: ${fechaHora}`;
 
-      await bot.telegram.sendMessage(PAYMENT_CHANNEL, mensajeCanal, { 
-        parse_mode: 'Markdown' 
-      });
-    } catch (ePagos) {
-      console.log('Error notificando al canal de pagos:', ePagos?.message || ePagos);
+        await bot.telegram.sendMessage(PAYMENT_CHANNEL, mensajeCanal, { 
+          parse_mode: 'Markdown' 
+        });
+        console.log(`✅ Notificación de retiro enviada al canal ${PAYMENT_CHANNEL}`);
+      } catch (ePagos) {
+        console.error('❌ Error notificando al canal de pagos:', ePagos?.message || ePagos);
+        console.error('🔍 Detalles del error:', {
+          channelId: PAYMENT_CHANNEL,
+          errorCode: ePagos?.code,
+          errorDescription: ePagos?.description
+        });
+      }
+    } else {
+      console.log('⚠️ PAYMENT_CHANNEL no configurado, saltando notificación al canal público');
     }
 
     await ctx.editMessageReplyMarkup();
@@ -1269,29 +1322,91 @@ bot.command('porcentajehoy', async (ctx) => {
   }
 });
 
-// ======== Webhook / Ping ========
+// ======== Comando de diagnóstico para admin ========
+bot.command('diagnostico', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return ctx.reply('Solo admin.');
+
+  try {
+    // Verificar conexión con Supabase
+    const { data: testData, error: testError } = await supabase
+      .from('usuarios')
+      .select('count')
+      .limit(1);
+
+    // Verificar tasa diaria
+    const porcentaje = await obtenerPorcentajeDelDia();
+
+    // Obtener estadísticas básicas
+    const { data: usuarios } = await supabase.from('usuarios').select('count');
+    const { data: depositos } = await supabase.from('depositos').select('count');
+    const { data: retiros } = await supabase.from('retiros').select('count');
+
+    const diagnostico = 
+      `🔍 **Diagnóstico del Sistema**\n\n` +
+      `✅ **Conexiones:**\n` +
+      `• Telegram: ✅ Activo\n` +
+      `• Supabase: ${testError ? '❌ Error' : '✅ Activo'}\n\n` +
+      `📊 **Configuración:**\n` +
+      `• Tasa del día: ${porcentaje}%\n` +
+      `• Canal de pagos: ${PAYMENT_CHANNEL ? '✅ Configurado' : '⚠️ No configurado'}\n` +
+      `• Min inversión: ${MIN_INVERSION} USDT\n` +
+      `• Fee retiro: ${RETIRO_FEE_USDT} USDT\n` +
+      `• Tasa CUP/USDT: ${CUP_USDT_RATE}\n\n` +
+      `📈 **Estadísticas:**\n` +
+      `• Usuarios: ${usuarios?.[0]?.count || 0}\n` +
+      `• Depósitos: ${depositos?.[0]?.count || 0}\n` +
+      `• Retiros: ${retiros?.[0]?.count || 0}\n\n` +
+      `🌐 **Servidor:**\n` +
+      `• Puerto: ${PORT}\n` +
+      `• Host: ${HOST_URL}\n` +
+      `• Webhook: /webhook/${WEBHOOK_SECRET}`;
+
+    await ctx.reply(diagnostico, { parse_mode: 'Markdown' });
+
+    if (testError) {
+      await ctx.reply(`❌ Error Supabase: ${testError.message}`);
+    }
+
+  } catch (e) {
+    console.error('Error en diagnóstico:', e);
+    await ctx.reply(`❌ Error ejecutando diagnóstico: ${e?.message || e}`);
+  }
+});
+
+// ======== Webhook / Ping con mejor manejo de errores ========
 app.get('/', (_, res) => res.send('OK'));
-app.post(`/webhook/${WEBHOOK_SECRET}`, (req, res) => bot.handleUpdate(req.body, res));
+
+app.post(`/webhook/${WEBHOOK_SECRET}`, (req, res) => {
+  try {
+    bot.handleUpdate(req.body, res);
+  } catch (error) {
+    console.error('❌ Error procesando webhook:', error?.message || error);
+    res.status(500).send('Error interno del servidor');
+  }
+});
+
 app.get('/webhook', async (_, res) => {
   try {
     const url = `${HOST_URL}/webhook/${WEBHOOK_SECRET}`;
     await bot.telegram.setWebhook(url);
+    console.log(`✅ Webhook configurado en: ${url}`);
     res.send(`Webhook configurado en: ${url}`);
   } catch (e) {
-    console.log('setWebhook error:', e);
-    res.status(500).send('Error configurando webhook');
+    console.error('❌ Error configurando webhook:', e?.message || e);
+    res.status(500).send('Error configurando webhook: ' + (e?.message || e));
   }
 });
 
-// Lanzar servidor + webhook
+// Lanzar servidor + webhook con mejor manejo de errores
 app.listen(PORT, async () => {
-  console.log(`HTTP server on port ${PORT}`);
+  console.log(`🚀 HTTP server iniciado en puerto ${PORT}`);
   try {
     const url = `${HOST_URL}/webhook/${WEBHOOK_SECRET}`;
     await bot.telegram.setWebhook(url);
-    console.log(`Webhook configurado en: ${url}`);
+    console.log(`✅ Webhook configurado automáticamente en: ${url}`);
   } catch (e) {
-    console.log('setWebhook error:', e);
+    console.error('❌ Error configurando webhook automáticamente:', e?.message || e);
+    console.error('💡 Puedes configurarlo manualmente visitando: /webhook');
   }
 });
 
