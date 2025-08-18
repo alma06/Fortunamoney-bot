@@ -636,8 +636,8 @@ bot.on('text', async (ctx, next) => {
 
       const depId = ins.data.id;
       const instrucciones = (moneda === 'USDT')
-        ? `Método: USDT (BEP20)\n- Wallet: \`${WALLET_USDT}\``
-        : `Método: CUP (Tarjeta)\n- Número de tarjeta: \`${WALLET_CUP}\``;
+        ? `Método: USDT (BEP20)\n- Wallet: <code>${WALLET_USDT}</code>`
+        : `Método: CUP (Tarjeta)\n- Número de tarjeta: <code>${WALLET_CUP}</code>`;
 
       await ctx.reply(
         `✅ Depósito creado (pendiente).\n\n` +
@@ -647,7 +647,7 @@ bot.on('text', async (ctx, next) => {
         `${instrucciones}\n\n` +
         `• Envía el hash de la transacción (USDT) o una foto/captura del pago (CUP).\n` +
         `• Cuando el admin confirme la recepción, tu inversión será acreditada.`,
-        { parse_mode: 'Markdown', ...menu() }
+        { parse_mode: 'HTML', ...menu() }
       );
 
       // Aviso al grupo admin
@@ -765,8 +765,8 @@ bot.on('text', async (ctx, next) => {
         `ID: ${retId}\n` +
         `Monto: ${numero(draft.monto).toFixed(draft.moneda === 'USDT' ? 2 : 0)} ${draft.moneda}\n` +
         `Método: ${draft.moneda}\n` +
-        `Destino: \`${destino}\``,
-        { parse_mode: 'Markdown', ...menu() }
+        `Destino: <code>${destino}</code>`,
+        { parse_mode: 'HTML', ...menu() }
       );
 
       // Aviso detallado al admin/canal
@@ -779,10 +779,10 @@ bot.on('text', async (ctx, next) => {
             `Usuario: ${uid}`,
             `Monto: ${numero(draft.monto).toFixed(draft.moneda === 'USDT' ? 2 : 0)} ${draft.moneda}`,
             `Método: ${draft.moneda}`,
-            `Destino: \`${destino}\``,
+            `Destino: <code>${destino}</code>`,
           ].join('\n'),
           {
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [
                 [{ text: '✅ Aprobar retiro', callback_data: `ret:approve:${retId}` }],
@@ -1077,13 +1077,13 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
         `Usuario: ${r.telegram_id}`,
         `Monto: ${r.monto.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}`,
         `Método: ${moneda}`,
-        `Destino: \`${r.destino}\``,
+        `Destino: <code>${r.destino}</code>`,
         `${fee > 0 ? `Fee aplicado: ${fee} ${moneda}` : 'Sin fee'}`,
         `Total debitado: ${totalDebitar.toFixed(moneda === 'USDT' ? 2 : 0)} ${moneda}`,
         `Estado: PAGADO ✅`
       ].join('\n');
 
-      await bot.telegram.sendMessage(PAYMENT_CHANNEL_ID, mensajePago, { parse_mode: 'Markdown' });
+      await bot.telegram.sendMessage(PAYMENT_CHANNEL_ID, mensajePago, { parse_mode: 'HTML' });
     } catch (e) {
       console.log('Error notificando al canal de pagos:', e);
     }
@@ -1108,8 +1108,8 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
       try {
         await bot.telegram.sendMessage(
           r.telegram_id,
-          `❌ Retiro rechazado\n\nID: #${rid}\nMonto: ${r.monto.toFixed((r.moneda || r.metodo) === 'USDT' ? 2 : 0)} ${r.moneda || r.metodo}\nDestino: \`${r.destino}\`\n\nContacta al administrador para más información.`,
-          { parse_mode: 'Markdown' }
+          `❌ Retiro rechazado\n\nID: #${rid}\nMonto: ${r.monto.toFixed((r.moneda || r.metodo) === 'USDT' ? 2 : 0)} ${r.moneda || r.metodo}\nDestino: <code>${r.destino}</code>\n\nContacta al administrador para más información.`,
+          { parse_mode: 'HTML' }
         );
       } catch (e) {
         console.log('Error notificando rechazo al usuario:', e);
@@ -1123,11 +1123,11 @@ bot.action(/ret:reject:(\d+)/, async (ctx) => {
           `Usuario: ${r.telegram_id}`,
           `Monto: ${r.monto.toFixed((r.moneda || r.metodo) === 'USDT' ? 2 : 0)} ${r.moneda || r.metodo}`,
           `Método: ${r.moneda || r.metodo}`,
-          `Destino: \`${r.destino}\``,
+          `Destino: <code>${r.destino}</code>`,
           `Estado: RECHAZADO ❌`
         ].join('\n');
 
-        await bot.telegram.sendMessage(PAYMENT_CHANNEL_ID, mensajePago, { parse_mode: 'Markdown' });
+        await bot.telegram.sendMessage(PAYMENT_CHANNEL_ID, mensajePago, { parse_mode: 'HTML' });
       } catch (e) {
         console.log('Error notificando rechazo al canal de pagos:', e);
       }
