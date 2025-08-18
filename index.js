@@ -15,7 +15,7 @@ const SUPABASE_URL    = process.env.SUPABASE_URL;
 const SUPABASE_KEY    = process.env.SUPABASE_KEY;
 const ADMIN_ID        = Number(process.env.ADMIN_ID || 0);
 const ADMIN_GROUP_ID  = Number(process.env.ADMIN_GROUP_ID || 0);
-const PAYMENT_CHANNEL = Number(process.env.PAYMENT_CHANNEL || 0);
+const PAGOS_CHANNEL_ID = Number(process.env.PAGOS_CHANNEL_ID || 0);
 const WALLET_USDT     = process.env.WALLET_USDT || 'WALLET_NO_CONFIGURADA';
 const WALLET_CUP      = process.env.WALLET_CUP  || 'TARJETA_NO_CONFIGURADA';
 const HOST_URL        = process.env.HOST_URL || ''; // https://tu-app.onrender.com
@@ -27,7 +27,7 @@ const MIN_INVERSION    = Number(process.env.MIN_INVERSION || 25);  // USDT
 const RETIRO_FEE_USDT  = Number(process.env.RETIRO_FEE_USDT || 1);
 const CUP_USDT_RATE    = Number(process.env.CUP_USDT_RATE  || 400); // 1 USDT = 400 CUP
 
-if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID || !PAYMENT_CHANNEL || !HOST_URL) {
+if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY || !ADMIN_ID || !ADMIN_GROUP_ID || !PAGOS_CHANNEL_ID || !HOST_URL) {
   console.log('Faltan variables de entorno obligatorias.');
   process.exit(1);
 }
@@ -1077,7 +1077,7 @@ bot.action(/ret:approve:(\d+)/, async (ctx) => {
         `💳 Método: ${moneda === 'USDT' ? 'USDT (BEP20)' : 'CUP (Tarjeta)'}\n` +
         `🕐 Fecha: ${fechaHora}`;
 
-      await bot.telegram.sendMessage(PAYMENT_CHANNEL, mensajeCanal, { 
+      await bot.telegram.sendMessage(PAGOS_CHANNEL_ID, mensajeCanal, { 
         parse_mode: 'Markdown' 
       });
     } catch (ePagos) {
