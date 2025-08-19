@@ -234,11 +234,11 @@ function progresoInversion(inversion) {
   return tope > 0 ? (ganado / tope) * 100 : 0;
 }
 
-// Aplicar bono de referido a las inversiones del sponsor (suma al progreso)
+// Aplicar bono de referido a las inversiones del sponsor (suma al progreso) con conversión automática
 async function aplicarBonoReferido(sponsorId, bonoMonto, moneda) {
   try {
-    // Obtener todas las inversiones activas del sponsor en la misma moneda (sin bonos)
-    const { data: inversiones } = await supabase
+    // Primero intentar aplicar en la misma moneda
+    const { data: inversionesMismaMoneda } = await supabase
       .from('depositos')
       .select('*')
       .eq('telegram_id', sponsorId)
@@ -246,45 +246,118 @@ async function aplicarBonoReferido(sponsorId, bonoMonto, moneda) {
       .eq('moneda', moneda)
       .or('es_bono_referido.is.null,es_bono_referido.eq.false'); // Excluir bonos de referido
 
-    if (!inversiones || inversiones.length === 0) {
-      console.log(`[BONO] ${sponsorId} no tiene inversiones activas en ${moneda}`);
+    // Filtrar solo inversiones que no han alcanzado el tope
+    const inversionesActivasMismaMoneda = (inversionesMismaMoneda || []).filter(inv => !topeAlcanzado(inv));
+    
+    if (inversionesActivasMismaMoneda.length > 0) {
+      // Aplicar en la misma moneda
+      const bonoPorInversion = bonoMonto / inversionesActivasMismaMoneda.length;
+
+      for (const inv of inversionesActivasMismaMoneda) {
+        const ganadoDisponibleActual = numero(inv.ganado_disponible);
+        const ganadoTotalActual = numero(inv.ganado_total);
+        const montoBase = numero(inv.monto_origen);
+        const tope = montoBase * 5; // Tope normal del 500%
+        
+        // Verificar cuánto se puede agregar sin exceder el tope
+        const margenDisponible = tope - ganadoTotalActual;
+        const bonoAAplicar = Math.min(bonoPorInversion, margenDisponible);
+        
+        if (bonoAAplicar > 0) {
+          await supabase.from('depositos')
+            .update({ 
+              ganado_disponible: ganadoDisponibleActual + bonoAAplicar,
+              ganado_total: ganadoTotalActual + bonoAAplicar
+            })
+            .eq('id', inv.id);
+
+          console.log(`[BONO] Inv #${inv.id}: +${bonoAAplicar.toFixed(2)} ${moneda} al progreso`);
+        }
+      }
+
+      console.log(`[BONO] Distribuidos ${bonoMonto} ${moneda} entre ${inversionesActivasMismaMoneda.length} inversiones de ${sponsorId}`);
+      return;
+    }
+
+    // Si no tiene inversiones en la misma moneda, intentar conversión
+    console.log(`[BONO] ${sponsorId} no tiene inversiones activas en ${moneda}, intentando conversión`);
+    
+    // Obtener todas las inversiones activas del sponsor en cualquier moneda
+    const { data: todasInversiones } = await supabase
+      .from('depositos')
+      .select('*')
+      .eq('telegram_id', sponsorId)
+      .eq('estado', 'aprobado')
+      .or('es_bono_referido.is.null,es_bono_referido.eq.false'); // Excluir bonos de referido
+
+    if (!todasInversiones || todasInversiones.length === 0) {
+      console.log(`[BONO] ${sponsorId} no tiene inversiones activas en ninguna moneda`);
       return;
     }
 
     // Filtrar solo inversiones que no han alcanzado el tope
-    const inversionesActivas = inversiones.filter(inv => !topeAlcanzado(inv));
+    const inversionesActivas = todasInversiones.filter(inv => !topeAlcanzado(inv));
     
     if (inversionesActivas.length === 0) {
-      console.log(`[BONO] ${sponsorId} no tiene inversiones sin alcanzar tope en ${moneda}`);
+      console.log(`[BONO] ${sponsorId} no tiene inversiones sin alcanzar tope en ninguna moneda`);
       return;
     }
 
-    // Distribuir el bono equitativamente
-    const bonoPorInversion = bonoMonto / inversionesActivas.length;
-
+    // Agrupar por moneda para aplicar conversión
+    const porMoneda = {};
     for (const inv of inversionesActivas) {
-      const ganadoDisponibleActual = numero(inv.ganado_disponible);
-      const ganadoTotalActual = numero(inv.ganado_total);
-      const montoBase = numero(inv.monto_origen);
-      const tope = montoBase * 5; // Tope normal del 500%
-      
-      // Verificar cuánto se puede agregar sin exceder el tope
-      const margenDisponible = tope - ganadoTotalActual;
-      const bonoAAplicar = Math.min(bonoPorInversion, margenDisponible);
-      
-      if (bonoAAplicar > 0) {
-        await supabase.from('depositos')
-          .update({ 
-            ganado_disponible: ganadoDisponibleActual + bonoAAplicar,
-            ganado_total: ganadoTotalActual + bonoAAplicar
-          })
-          .eq('id', inv.id);
-
-        console.log(`[BONO] Inv #${inv.id}: +${bonoAAplicar.toFixed(2)} ${moneda} al progreso`);
+      if (!porMoneda[inv.moneda]) {
+        porMoneda[inv.moneda] = [];
       }
+      porMoneda[inv.moneda].push(inv);
     }
 
-    console.log(`[BONO] Distribuidos ${bonoMonto} ${moneda} entre ${inversionesActivas.length} inversiones de ${sponsorId}`);
+    // Convertir el bono a la moneda de las inversiones del patrocinador
+    for (const monedaPatrocinador in porMoneda) {
+      const inversionesEnMoneda = porMoneda[monedaPatrocinador];
+      let bonoConvertido = bonoMonto;
+
+      // Aplicar conversión si es necesario
+      if (moneda !== monedaPatrocinador) {
+        if (moneda === 'CUP' && monedaPatrocinador === 'USDT') {
+          // CUP a USDT
+          bonoConvertido = bonoMonto / CUP_USDT_RATE;
+        } else if (moneda === 'USDT' && monedaPatrocinador === 'CUP') {
+          // USDT a CUP
+          bonoConvertido = bonoMonto * CUP_USDT_RATE;
+        }
+        console.log(`[BONO] Conversión: ${bonoMonto} ${moneda} → ${bonoConvertido.toFixed(monedaPatrocinador === 'USDT' ? 2 : 0)} ${monedaPatrocinador}`);
+      }
+
+      // Distribuir el bono convertido
+      const bonoPorInversion = bonoConvertido / inversionesEnMoneda.length;
+
+      for (const inv of inversionesEnMoneda) {
+        const ganadoDisponibleActual = numero(inv.ganado_disponible);
+        const ganadoTotalActual = numero(inv.ganado_total);
+        const montoBase = numero(inv.monto_origen);
+        const tope = montoBase * 5; // Tope normal del 500%
+        
+        // Verificar cuánto se puede agregar sin exceder el tope
+        const margenDisponible = tope - ganadoTotalActual;
+        const bonoAAplicar = Math.min(bonoPorInversion, margenDisponible);
+        
+        if (bonoAAplicar > 0) {
+          await supabase.from('depositos')
+            .update({ 
+              ganado_disponible: ganadoDisponibleActual + bonoAAplicar,
+              ganado_total: ganadoTotalActual + bonoAAplicar
+            })
+            .eq('id', inv.id);
+
+          console.log(`[BONO] Inv #${inv.id}: +${bonoAAplicar.toFixed(monedaPatrocinador === 'USDT' ? 2 : 0)} ${monedaPatrocinador} al progreso (convertido)`);
+        }
+      }
+
+      console.log(`[BONO] Distribuidos ${bonoConvertido.toFixed(monedaPatrocinador === 'USDT' ? 2 : 0)} ${monedaPatrocinador} entre ${inversionesEnMoneda.length} inversiones de ${sponsorId} (convertido desde ${moneda})`);
+      break; // Solo aplicar a la primera moneda encontrada
+    }
+
   } catch (e) {
     console.log('[BONO] Error aplicando bono:', e);
   }
@@ -780,22 +853,54 @@ bot.on('text', async (ctx, next) => {
 
       // Aviso al grupo admin
       try {
-        const adminBody =
-          `📥 DEPÓSITO pendiente\n` +
-          `ID: #${depId}\n` +
-          `User: ${chatId}\n` +
-          `Monto: ${monto_origen.toFixed(2)} ${moneda}\n` +
-          (moneda === 'CUP' ? `Equivalente: ${montoFinal.toFixed(2)} USDT\n` : ``) +
-          `Usa los botones para validar.`;
+        // Obtener información del usuario para el admin
+        const userInfo = ctx.from;
+        let adminBody = `📥 DEPÓSITO pendiente\n`;
+        adminBody += `ID: #${depId}\n`;
+        adminBody += `User ID: ${chatId}\n`;
+        
+        // Información del usuario
+        if (userInfo.username) {
+          adminBody += `Username: @${userInfo.username}\n`;
+        }
+        if (userInfo.first_name) {
+          adminBody += `Nombre: ${userInfo.first_name}`;
+          if (userInfo.last_name) {
+            adminBody += ` ${userInfo.last_name}`;
+          }
+          adminBody += `\n`;
+        }
+        
+        adminBody += `Monto: ${monto_origen.toFixed(2)} ${moneda}\n`;
+        if (moneda === 'CUP') {
+          adminBody += `Equivalente: ${montoFinal.toFixed(2)} USDT\n`;
+        }
+        
+        // Verificar si tiene patrocinador
+        const { data: usuarioData } = await supabase
+          .from('usuarios')
+          .select('patrocinador_id')
+          .eq('telegram_id', chatId)
+          .maybeSingle();
+        
+        if (usuarioData?.patrocinador_id) {
+          adminBody += `Referido por: ${usuarioData.patrocinador_id}\n`;
+        }
+        
+        adminBody += `\n📞 Para contactar: t.me/${userInfo.username || 'user_' + chatId}\n`;
+        adminBody += `💬 Mensaje directo: <a href="tg://user?id=${chatId}">Contactar usuario</a>\n\n`;
+        adminBody += `Usa los botones para validar.`;
 
         await bot.telegram.sendMessage(
           ADMIN_GROUP_ID,
           adminBody,
           {
+            parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [
                 [{ text: '✅ Aprobar',  callback_data: `dep:approve:${depId}` }],
-                [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}`  }]
+                [{ text: '❌ Rechazar', callback_data: `dep:reject:${depId}`  }],
+                [{ text: '💬 Contactar', url: `tg://user?id=${chatId}` }]
               ]
             }
           }
@@ -981,7 +1086,7 @@ bot.on('photo', async (ctx) => {
     const fileId = best.file_id;
 
     const { data: dep } = await supabase.from('depositos')
-      .select('id, estado')
+      .select('id, estado, monto_origen, moneda')
       .eq('telegram_id', uid).eq('estado', 'pendiente')
       .order('id', { ascending: false }).limit(1).maybeSingle();
 
@@ -990,12 +1095,49 @@ bot.on('photo', async (ctx) => {
     await supabase.from('depositos').update({ proof_file_id: fileId }).eq('id', dep.id);
     await ctx.reply(`Comprobante guardado (#${dep.id}).`);
 
+    // Obtener información del usuario para el admin
+    const userInfo = ctx.from;
+    let caption = `🧾 COMPROBANTE DE DEPÓSITO\n`;
+    caption += `ID: #${dep.id}\n`;
+    caption += `User ID: ${uid}\n`;
+    
+    // Información del usuario
+    if (userInfo.username) {
+      caption += `Username: @${userInfo.username}\n`;
+    }
+    if (userInfo.first_name) {
+      caption += `Nombre: ${userInfo.first_name}`;
+      if (userInfo.last_name) {
+        caption += ` ${userInfo.last_name}`;
+      }
+      caption += `\n`;
+    }
+    
+    caption += `Monto: ${numero(dep.monto_origen).toFixed(2)} ${dep.moneda}\n`;
+    
+    // Verificar si tiene patrocinador
+    const { data: usuarioData } = await supabase
+      .from('usuarios')
+      .select('patrocinador_id')
+      .eq('telegram_id', uid)
+      .maybeSingle();
+    
+    if (usuarioData?.patrocinador_id) {
+      caption += `Referido por: ${usuarioData.patrocinador_id}\n`;
+    }
+    
+    caption += `\n📞 Para contactar: t.me/${userInfo.username || 'user_' + uid}\n`;
+    caption += `💬 Mensaje directo: usa el botón "Contactar"`;
+
     await bot.telegram.sendPhoto(ADMIN_GROUP_ID, fileId, {
-      caption: `🧾 DEPÓSITO\nID: ${dep.id}\nUser: ${uid}`,
-      reply_markup: { inline_keyboard: [
-        [{ text: '✅ Aprobar', callback_data: `dep:approve:${dep.id}` }],
-        [{ text: '❌ Rechazar', callback_data: `dep:reject:${dep.id}` }]
-      ]}
+      caption: caption,
+      reply_markup: { 
+        inline_keyboard: [
+          [{ text: '✅ Aprobar', callback_data: `dep:approve:${dep.id}` }],
+          [{ text: '❌ Rechazar', callback_data: `dep:reject:${dep.id}` }],
+          [{ text: '💬 Contactar', url: `tg://user?id=${uid}` }]
+        ]
+      }
     });
 
   } catch (e) {
@@ -1059,14 +1201,40 @@ try {
     // Aplicar el bono directamente al progreso de las inversiones del sponsor
     await aplicarBonoReferido(sponsorId, bonoMonto, monedaBono);
 
-    // Notificar al sponsor
+    // Notificar al sponsor con información de conversión si aplica
     try {
-      await bot.telegram.sendMessage(
-        sponsorId,
-        `🎉 Bono de referido acreditado: ${bonoMonto.toFixed(monedaBono === 'USDT' ? 2 : 0)} ${monedaBono}\n` +
-        `Por el depósito de tu referido ${d.telegram_id}.\n` +
-        `Este bono se ha sumado directamente al progreso de tus inversiones activas de ${monedaBono}.`
-      );
+      // Verificar si el sponsor tiene inversiones en la misma moneda
+      const { data: inversionesMismaMoneda } = await supabase
+        .from('depositos')
+        .select('*')
+        .eq('telegram_id', sponsorId)
+        .eq('estado', 'aprobado')
+        .eq('moneda', monedaBono)
+        .or('es_bono_referido.is.null,es_bono_referido.eq.false');
+
+      const tieneInversionesMismaMoneda = (inversionesMismaMoneda || []).some(inv => !topeAlcanzado(inv));
+
+      let mensajeBono = `🎉 Bono de referido acreditado: ${bonoMonto.toFixed(monedaBono === 'USDT' ? 2 : 0)} ${monedaBono}\n`;
+      mensajeBono += `Por el depósito de tu referido ${d.telegram_id}.\n\n`;
+
+      if (tieneInversionesMismaMoneda) {
+        mensajeBono += `✅ Este bono se ha sumado directamente al progreso de tus inversiones activas de ${monedaBono}.`;
+      } else {
+        // Mostrar información de conversión
+        if (monedaBono === 'CUP') {
+          const bonoConvertido = bonoMonto / CUP_USDT_RATE;
+          mensajeBono += `🔄 Como no tienes inversiones activas en CUP, el bono se convirtió a USDT:\n`;
+          mensajeBono += `${bonoMonto.toFixed(0)} CUP → ${bonoConvertido.toFixed(2)} USDT (Tasa: 1 USDT = ${CUP_USDT_RATE} CUP)\n\n`;
+          mensajeBono += `✅ Este bono convertido se ha sumado al progreso de tus inversiones activas de USDT.`;
+        } else {
+          const bonoConvertido = bonoMonto * CUP_USDT_RATE;
+          mensajeBono += `🔄 Como no tienes inversiones activas en USDT, el bono se convirtió a CUP:\n`;
+          mensajeBono += `${bonoMonto.toFixed(2)} USDT → ${bonoConvertido.toFixed(0)} CUP (Tasa: 1 USDT = ${CUP_USDT_RATE} CUP)\n\n`;
+          mensajeBono += `✅ Este bono convertido se ha sumado al progreso de tus inversiones activas de CUP.`;
+        }
+      }
+
+      await bot.telegram.sendMessage(sponsorId, mensajeBono);
     } catch (eMsg) {
       console.log('[BONO] no pude notificar al sponsor:', eMsg?.message || eMsg);
     }
@@ -1374,6 +1542,90 @@ bot.command('pagarhoy', async (ctx) => {
   } catch (e) {
     console.log('/pagarhoy error:', e);
     try { await ctx.reply('Error en pagarhoy. Revisa logs.'); } catch {}
+  }
+});
+
+// ======== Comando para obtener información de usuario ========
+bot.command('userinfo', async (ctx) => {
+  if (ctx.from.id !== ADMIN_ID) return ctx.reply('Solo admin.');
+
+  const argumento = ctx.message.text.split(' ')[1];
+  if (!argumento) {
+    return ctx.reply('Uso: /userinfo <telegram_id>\nEjemplo: /userinfo 123456789');
+  }
+
+  const userId = Number(argumento);
+  if (!userId || isNaN(userId)) {
+    return ctx.reply('ID de usuario inválido.');
+  }
+
+  try {
+    // Obtener información del usuario
+    const { data: usuario } = await supabase
+      .from('usuarios')
+      .select('*')
+      .eq('telegram_id', userId)
+      .maybeSingle();
+
+    // Obtener inversiones
+    const inversiones = await inversionesDe(userId);
+    const saldos = await saldosPorMoneda(userId);
+    const bonos = await carteraBonosDe(userId);
+
+    // Obtener información del chat de Telegram
+    let telegramInfo = '';
+    try {
+      const chatInfo = await bot.telegram.getChat(userId);
+      telegramInfo = `👤 **Información de Telegram:**\n`;
+      telegramInfo += `• ID: ${userId}\n`;
+      if (chatInfo.username) telegramInfo += `• Username: @${chatInfo.username}\n`;
+      if (chatInfo.first_name) {
+        telegramInfo += `• Nombre: ${chatInfo.first_name}`;
+        if (chatInfo.last_name) telegramInfo += ` ${chatInfo.last_name}`;
+        telegramInfo += `\n`;
+      }
+      telegramInfo += `• Contacto: [Enviar mensaje](tg://user?id=${userId})\n\n`;
+    } catch (e) {
+      telegramInfo = `👤 **Usuario ID:** ${userId}\n• Contacto: [Enviar mensaje](tg://user?id=${userId})\n\n`;
+    }
+
+    let mensaje = telegramInfo;
+
+    mensaje += `💰 **Estado financiero:**\n`;
+    mensaje += `• Saldo USDT: ${saldos.USDT.toFixed(2)}\n`;
+    mensaje += `• Saldo CUP: ${saldos.CUP.toFixed(0)}\n`;
+    mensaje += `• Bonos: ${bonos.saldo.toFixed(2)} USDT\n\n`;
+
+    if (usuario?.patrocinador_id) {
+      mensaje += `👥 **Referido por:** ${usuario.patrocinador_id}\n\n`;
+    }
+
+    mensaje += `📊 **Inversiones activas:** ${inversiones.length}\n`;
+    
+    if (inversiones.length > 0) {
+      mensaje += `\n💵 **Detalle de inversiones:**\n`;
+      for (const inv of inversiones.slice(0, 10)) { // Mostrar máximo 10
+        const progreso = progresoInversion(inv);
+        mensaje += `• #${inv.id}: ${numero(inv.monto_origen).toFixed(inv.moneda === 'USDT' ? 2 : 0)} ${inv.moneda} `;
+        mensaje += `(${progreso.toFixed(1)}%)\n`;
+      }
+      if (inversiones.length > 10) {
+        mensaje += `• ... y ${inversiones.length - 10} más\n`;
+      }
+    }
+
+    await ctx.reply(mensaje, { 
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '💬 Contactar usuario', url: `tg://user?id=${userId}` }]
+        ]
+      }
+    });
+
+  } catch (e) {
+    console.log('/userinfo error:', e);
+    await ctx.reply('Error obteniendo información del usuario.');
   }
 });
 
